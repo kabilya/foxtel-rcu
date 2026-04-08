@@ -29,6 +29,14 @@
       document.querySelectorAll('video').forEach(function(v) {
         if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
       });
+
+      // Hint to the SBB that text inputs should trigger the soft keyboard
+      document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
+        if (!inp.hasAttribute('inputmode')) {
+          inp.setAttribute('inputmode', inp.type === 'email' ? 'email' : 'text');
+        }
+        inp.setAttribute('enterkeyhint', 'done');
+      });
     }
 
     // --- Focusable element selector ---
@@ -218,9 +226,20 @@
         var focused = document.activeElement;
         if (!focused || focused === document.body) return;
 
-        // Let Enter work normally in inputs (submit form)
+        // Input fields: Enter should submit the form, but on SBB
+        // we also try to trigger the soft keyboard by clicking the
+        // input (some STBs show the keyboard on click, not focus)
         if (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') {
-          return; // don't prevent default — allow form submission
+          if (isSBB && !focused._sbbKeyboardShown) {
+            // First Enter press: try to trigger soft keyboard
+            focused._sbbKeyboardShown = true;
+            focused.click();
+            e.preventDefault();
+            return;
+          }
+          // Subsequent Enter: allow form submission
+          focused._sbbKeyboardShown = false;
+          return;
         }
 
         // Video element: toggle play/pause
