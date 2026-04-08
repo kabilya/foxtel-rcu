@@ -612,8 +612,14 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
-        // If in fullscreen, let the browser exit fullscreen naturally
+        // If in fullscreen, exit fullscreen explicitly
         if (document.fullscreenElement || document.webkitFullscreenElement) {
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          }
+          e.preventDefault();
           return;
         }
 
@@ -694,6 +700,10 @@
       if (_kbdOpen) {
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+      // Let browser handle Escape keyup in fullscreen (needed to exit fullscreen)
+      if (e.key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement)) {
         return;
       }
       var nav = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Escape'];
