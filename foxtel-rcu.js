@@ -155,6 +155,8 @@
     }
 
     // --- Main keydown handler ---
+    // Use CAPTURE phase (true) so we intercept keys before shadow DOM
+    // elements like <ds-input> can consume them
     document.addEventListener('keydown', function(e) {
       var key = e.key;
 
@@ -162,17 +164,34 @@
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
           key === 'ArrowLeft' || key === 'ArrowRight') {
 
-        // Allow normal arrow key behavior inside text inputs
-        var tag = document.activeElement ? document.activeElement.tagName : '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-          // Allow left/right for cursor movement in inputs
-          if (key === 'ArrowLeft' || key === 'ArrowRight') return;
-          // Up/Down should navigate away from the input
+        // Check if we're inside a text input
+        var active = document.activeElement;
+        var tag = active ? active.tagName : '';
+        var isInput = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+
+        // Allow left/right for cursor movement in inputs
+        if (isInput && (key === 'ArrowLeft' || key === 'ArrowRight')) return;
+
+        // For Up/Down in an input: blur the input first so spatial
+        // navigation can find the next element from its position
+        if (isInput && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Find next from the input's parent (ds-input) if it exists,
+          // otherwise from the input itself
+          var navFrom = active.closest && active.closest('ds-input') || active;
+          var next = findNext(navFrom, key);
+          if (next) {
+            var target = getFocusTarget(next);
+            active.blur();
+            target.focus();
+            ensureVisible(target);
+          }
+          return;
         }
 
         e.preventDefault();
 
-        var active = document.activeElement;
         if (!active || active === document.body || active === document.documentElement) {
           focusFirst();
           return;
@@ -314,9 +333,9 @@
             e.preventDefault(); break;
         }
       }
-    }, false);
+    }, true); // capture phase — intercept before shadow DOM
 
-    // Prevent keyup default for navigation keys
+    // Prevent keyup default for navigation keys (also capture phase)
     document.addEventListener('keyup', function(e) {
       var nav = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Escape'];
       if (nav.indexOf(e.key) !== -1) {
@@ -326,7 +345,7 @@
           e.preventDefault();
         }
       }
-    }, false);
+    }, true);
   }
 
   // Run when DOM is ready
