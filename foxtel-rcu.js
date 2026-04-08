@@ -272,10 +272,10 @@
           e.preventDefault();
           return;
         }
-        if (window.history.length > 1) {
-          window.history.back();
-          e.preventDefault();
-        }
+        // Always attempt to go back — history.length can be unreliable
+        // on SBB. If there's no history, this is a no-op.
+        window.history.back();
+        e.preventDefault();
         return;
       }
 
