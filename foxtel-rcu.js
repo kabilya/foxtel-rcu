@@ -291,9 +291,18 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Blur any focused input/button first so shadow DOM
+        // doesn't swallow the event
+        var ae = document.activeElement;
+        if (ae && ae !== document.body) {
+          ae.blur();
+        }
+
         if (document.body.classList.contains('opened-menu')) {
           document.body.classList.remove('opened-menu');
-          e.preventDefault();
           return;
         }
         var openFaq = document.querySelector('.faq-opened');
