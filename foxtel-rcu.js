@@ -457,9 +457,11 @@
 
     sbbSetup();
 
-    // Re-run setup after Turbo page navigation
+    // Re-run setup after Turbo page/frame navigation
     document.addEventListener('turbo:load', sbbSetup);
     document.addEventListener('turbo:render', sbbSetup);
+    document.addEventListener('turbo:frame-load', sbbSetup);
+    document.addEventListener('turbo:frame-render', sbbSetup);
 
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
