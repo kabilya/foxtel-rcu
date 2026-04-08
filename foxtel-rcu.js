@@ -612,6 +612,11 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
+        // If in fullscreen, let the browser exit fullscreen naturally
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          return;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
