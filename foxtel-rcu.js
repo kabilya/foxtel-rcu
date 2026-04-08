@@ -180,17 +180,32 @@
         // Allow left/right for cursor movement in inputs
         if (isInput && (key === 'ArrowLeft' || key === 'ArrowRight')) return;
 
-        // For Up/Down in an input: blur the input first so spatial
-        // navigation can find the next element from its position
+        // For Up/Down in an input: closest() can't cross shadow DOM
+        // boundaries, so we find the next element by comparing Y
+        // positions directly against all visible focusables
         if (isInput && (key === 'ArrowUp' || key === 'ArrowDown')) {
           e.preventDefault();
           e.stopPropagation();
-          // Find next from the input's parent (ds-input) if it exists,
-          // otherwise from the input itself
-          var navFrom = active.closest && active.closest('ds-input') || active;
-          var next = findNext(navFrom, key);
-          if (next) {
-            var target = getFocusTarget(next);
+          var inputRect = active.getBoundingClientRect();
+          var inputCy = inputRect.top + inputRect.height / 2;
+          var best = null;
+          var bestDist = Infinity;
+          var all = getVisibleFocusables();
+          for (var j = 0; j < all.length; j++) {
+            if (all[j] === active) continue;
+            if (all[j].tagName === 'INPUT' || all[j].tagName === 'TEXTAREA') continue;
+            var cr = all[j].getBoundingClientRect();
+            var cy = cr.top + cr.height / 2;
+            var dy = cy - inputCy;
+            if (key === 'ArrowDown' && dy > 5 && Math.abs(dy) < bestDist) {
+              bestDist = Math.abs(dy); best = all[j];
+            }
+            if (key === 'ArrowUp' && dy < -5 && Math.abs(dy) < bestDist) {
+              bestDist = Math.abs(dy); best = all[j];
+            }
+          }
+          if (best) {
+            var target = getFocusTarget(best);
             active.blur();
             target.focus();
             ensureVisible(target);
