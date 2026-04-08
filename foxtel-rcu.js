@@ -66,6 +66,8 @@
         // can be null for custom elements even when visible)
         var rect = el.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
+          // Skip keyboard overlay elements
+          if (_kbdOverlay && _kbdOverlay.contains(el)) continue;
           var s = window.getComputedStyle(el);
           if (s.visibility !== 'hidden' && s.display !== 'none') {
             out.push(el);
@@ -158,7 +160,290 @@
       return el;
     }
 
+    // --- On-Screen Keyboard for SBB ---
+    var _kbdOverlay = null;
+    var _kbdOpen = false;
+    var _kbdTarget = null;
+    var _kbdIsPassword = false;
+    var _kbdShift = false;
+    var _kbdRow = 1;
+    var _kbdCol = 0;
+    var _kbdRows = [];  // 2D array of key elements
+
+    var KBD_LAYOUTS = [
+      [{l:'@', k:'@'}, {l:'.', k:'.'}, {l:'.com', a:'dotcom'}, {l:'-', k:'-'}, {l:'_', k:'_'}],
+      [{l:'q'}, {l:'w'}, {l:'e'}, {l:'r'}, {l:'t'}, {l:'y'}, {l:'u'}, {l:'i'}, {l:'o'}, {l:'p'}],
+      [{l:'a'}, {l:'s'}, {l:'d'}, {l:'f'}, {l:'g'}, {l:'h'}, {l:'j'}, {l:'k'}, {l:'l'}],
+      [{l:'SHIFT', a:'shift', w:true}, {l:'z'}, {l:'x'}, {l:'c'}, {l:'v'}, {l:'b'}, {l:'n'}, {l:'m'}, {l:'DEL', a:'backspace', w:true}],
+      [{l:'SPACE', a:'space', s:true}, {l:'DONE', a:'done', d:true}]
+    ];
+
+    function buildKeyboard() {
+      _kbdOverlay = document.createElement('div');
+      _kbdOverlay.id = 'sbb-kbd-overlay';
+
+      var container = document.createElement('div');
+      container.id = 'sbb-kbd-container';
+
+      var label = document.createElement('div');
+      label.id = 'sbb-kbd-label';
+      label.textContent = '';
+      container.appendChild(label);
+
+      var preview = document.createElement('div');
+      preview.id = 'sbb-kbd-preview';
+      preview.innerHTML = '<span class="sbb-kbd-cursor">|</span>';
+      container.appendChild(preview);
+
+      var grid = document.createElement('div');
+      grid.id = 'sbb-kbd-grid';
+
+      for (var r = 0; r < KBD_LAYOUTS.length; r++) {
+        var rowData = KBD_LAYOUTS[r];
+        var rowEl = document.createElement('div');
+        rowEl.className = 'sbb-kbd-row';
+        _kbdRows[r] = [];
+
+        for (var c = 0; c < rowData.length; c++) {
+          var kd = rowData[c];
+          var keyEl = document.createElement('span');
+          keyEl.className = 'sbb-kbd-key';
+          if (kd.w) keyEl.className += ' sbb-kbd-wide';
+          if (kd.s) keyEl.className += ' sbb-kbd-space';
+          if (kd.d) keyEl.className += ' sbb-kbd-done';
+          keyEl.textContent = kd.l;
+          if (kd.a) keyEl.setAttribute('data-action', kd.a);
+          if (kd.k) keyEl.setAttribute('data-key', kd.k);
+          if (!kd.a && !kd.k) keyEl.setAttribute('data-key', kd.l);
+          rowEl.appendChild(keyEl);
+          _kbdRows[r][c] = keyEl;
+        }
+        grid.appendChild(rowEl);
+      }
+
+      container.appendChild(grid);
+      _kbdOverlay.appendChild(container);
+      document.body.appendChild(_kbdOverlay);
+    }
+
+    function kbdUpdateHighlight() {
+      for (var r = 0; r < _kbdRows.length; r++) {
+        for (var c = 0; c < _kbdRows[r].length; c++) {
+          var cl = _kbdRows[r][c].className.replace(/ ?sbb-kbd-highlight/g, '');
+          _kbdRows[r][c].className = cl;
+        }
+      }
+      _kbdRows[_kbdRow][_kbdCol].className += ' sbb-kbd-highlight';
+    }
+
+    function kbdUpdatePreview() {
+      if (!_kbdTarget) return;
+      var val = _kbdTarget.value || '';
+      var preview = document.getElementById('sbb-kbd-preview');
+      if (!preview) return;
+      var display = '';
+      if (_kbdIsPassword) {
+        for (var i = 0; i < val.length; i++) display += '\u2022';
+      } else {
+        display = val;
+      }
+      preview.innerHTML = '';
+      preview.appendChild(document.createTextNode(display));
+      var cursor = document.createElement('span');
+      cursor.className = 'sbb-kbd-cursor';
+      cursor.textContent = '|';
+      preview.appendChild(cursor);
+    }
+
+    function kbdFireInputEvents(el) {
+      try {
+        el.dispatchEvent(new Event('input', {bubbles: true}));
+        el.dispatchEvent(new Event('change', {bubbles: true}));
+      } catch (ex) {
+        // Fallback for older browsers
+        var evt = document.createEvent('Event');
+        evt.initEvent('input', true, true);
+        el.dispatchEvent(evt);
+        var evt2 = document.createEvent('Event');
+        evt2.initEvent('change', true, true);
+        el.dispatchEvent(evt2);
+      }
+    }
+
+    function openKeyboard(inputEl) {
+      if (!_kbdOverlay) return;
+      // Resolve to the actual <input> inside <ds-input>
+      _kbdTarget = getFocusTarget(inputEl);
+      // Walk up to check if it's inside a ds-input with type password
+      var parent = inputEl;
+      if (inputEl.tagName === 'INPUT') {
+        parent = inputEl.parentElement;
+        // Check shadow host if inside shadow DOM
+        if (inputEl.getRootNode && inputEl.getRootNode() !== document) {
+          var root = inputEl.getRootNode();
+          if (root.host) parent = root.host;
+        }
+      }
+      _kbdIsPassword = (_kbdTarget.type === 'password');
+
+      var label = document.getElementById('sbb-kbd-label');
+      if (label) {
+        // Try to find a label for this input
+        var labelText = '';
+        if (parent && parent.tagName === 'DS-INPUT') {
+          var lbl = parent.getAttribute('label') || parent.getAttribute('placeholder') || '';
+          labelText = lbl;
+        }
+        if (!labelText && _kbdTarget.placeholder) {
+          labelText = _kbdTarget.placeholder;
+        }
+        if (!labelText) {
+          labelText = _kbdIsPassword ? 'Password' : 'Email';
+        }
+        label.textContent = labelText;
+      }
+
+      _kbdShift = false;
+      _kbdRow = 1;
+      _kbdCol = 0;
+      _kbdOpen = true;
+      _kbdOverlay.className = 'sbb-kbd-visible';
+
+      kbdUpdateShiftDisplay();
+      kbdUpdateHighlight();
+      kbdUpdatePreview();
+    }
+
+    function closeKeyboard(advanceFocus) {
+      if (!_kbdOverlay) return;
+      _kbdOpen = false;
+      _kbdOverlay.className = '';
+
+      if (advanceFocus && _kbdTarget) {
+        // Find the ds-input or input that was being edited
+        var el = _kbdTarget;
+        // Try to get the host element for spatial navigation
+        if (el.getRootNode && el.getRootNode() !== document) {
+          var root = el.getRootNode();
+          if (root.host) el = root.host;
+        }
+        var next = findNext(el, 'ArrowDown');
+        if (next) {
+          var target = getFocusTarget(next);
+          target.focus();
+          ensureVisible(target);
+        }
+      }
+      _kbdTarget = null;
+    }
+
+    function kbdNavigate(direction) {
+      if (direction === 'ArrowLeft') {
+        _kbdCol--;
+        if (_kbdCol < 0) _kbdCol = _kbdRows[_kbdRow].length - 1;
+      } else if (direction === 'ArrowRight') {
+        _kbdCol++;
+        if (_kbdCol >= _kbdRows[_kbdRow].length) _kbdCol = 0;
+      } else if (direction === 'ArrowUp') {
+        _kbdRow--;
+        if (_kbdRow < 0) _kbdRow = _kbdRows.length - 1;
+        if (_kbdCol >= _kbdRows[_kbdRow].length) _kbdCol = _kbdRows[_kbdRow].length - 1;
+      } else if (direction === 'ArrowDown') {
+        _kbdRow++;
+        if (_kbdRow >= _kbdRows.length) _kbdRow = 0;
+        if (_kbdCol >= _kbdRows[_kbdRow].length) _kbdCol = _kbdRows[_kbdRow].length - 1;
+      }
+      kbdUpdateHighlight();
+    }
+
+    function kbdUpdateShiftDisplay() {
+      // Update letter key labels and shift key styling
+      for (var r = 1; r <= 3; r++) {
+        for (var c = 0; c < _kbdRows[r].length; c++) {
+          var keyEl = _kbdRows[r][c];
+          var action = keyEl.getAttribute('data-action');
+          if (action === 'shift') {
+            var cl = keyEl.className.replace(/ ?sbb-kbd-shift-on/g, '');
+            keyEl.className = _kbdShift ? cl + ' sbb-kbd-shift-on' : cl;
+          } else if (!action) {
+            var k = keyEl.getAttribute('data-key');
+            if (k && k.length === 1 && k >= 'a' && k <= 'z') {
+              keyEl.textContent = _kbdShift ? k.toUpperCase() : k;
+            }
+          }
+        }
+      }
+    }
+
+    function kbdSelect() {
+      if (!_kbdTarget) return;
+      var keyEl = _kbdRows[_kbdRow][_kbdCol];
+      var action = keyEl.getAttribute('data-action');
+
+      if (action === 'shift') {
+        _kbdShift = !_kbdShift;
+        kbdUpdateShiftDisplay();
+        kbdUpdateHighlight();
+        return;
+      }
+      if (action === 'backspace') {
+        var val = _kbdTarget.value;
+        if (val.length > 0) {
+          _kbdTarget.value = val.substring(0, val.length - 1);
+          kbdFireInputEvents(_kbdTarget);
+        }
+        kbdUpdatePreview();
+        return;
+      }
+      if (action === 'space') {
+        _kbdTarget.value += ' ';
+        kbdFireInputEvents(_kbdTarget);
+        kbdUpdatePreview();
+        return;
+      }
+      if (action === 'dotcom') {
+        _kbdTarget.value += '.com';
+        kbdFireInputEvents(_kbdTarget);
+        kbdUpdatePreview();
+        return;
+      }
+      if (action === 'done') {
+        closeKeyboard(true);
+        return;
+      }
+
+      // Regular character key
+      var ch = keyEl.getAttribute('data-key');
+      if (ch) {
+        if (_kbdShift && ch.length === 1 && ch >= 'a' && ch <= 'z') {
+          ch = ch.toUpperCase();
+        }
+        _kbdTarget.value += ch;
+        kbdFireInputEvents(_kbdTarget);
+        // Auto-disable shift after typing a letter (like mobile keyboards)
+        if (_kbdShift) {
+          _kbdShift = false;
+          kbdUpdateShiftDisplay();
+        }
+        kbdUpdatePreview();
+      }
+    }
+
+    function kbdDirectInput(key) {
+      if (!_kbdTarget) return;
+      var ch = key;
+      if (_kbdShift && ch.length === 1 && ch >= 'a' && ch <= 'z') {
+        ch = ch.toUpperCase();
+        _kbdShift = false;
+        kbdUpdateShiftDisplay();
+      }
+      _kbdTarget.value += ch;
+      kbdFireInputEvents(_kbdTarget);
+      kbdUpdatePreview();
+    }
+
     if (isSBB) {
+      buildKeyboard();
       focusFirst();
     }
 
@@ -167,6 +452,30 @@
     // elements like <ds-input> can consume them
     document.addEventListener('keydown', function(e) {
       var key = e.key;
+
+      // --- On-screen keyboard intercept (consumes ALL keys when open) ---
+      if (_kbdOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'ArrowUp' || key === 'ArrowDown' ||
+            key === 'ArrowLeft' || key === 'ArrowRight') {
+          kbdNavigate(key);
+        } else if (key === 'Enter') {
+          kbdSelect();
+        } else if (key === 'Escape') {
+          closeKeyboard(false);
+        } else if (key === 'Backspace') {
+          // Direct backspace support
+          if (_kbdTarget && _kbdTarget.value.length > 0) {
+            _kbdTarget.value = _kbdTarget.value.substring(0, _kbdTarget.value.length - 1);
+            kbdFireInputEvents(_kbdTarget);
+            kbdUpdatePreview();
+          }
+        } else if (/^[a-zA-Z0-9@.\-_]$/.test(key)) {
+          kbdDirectInput(key);
+        }
+        return;
+      }
 
       // Directional navigation (LRUD)
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
@@ -241,19 +550,14 @@
         var focused = document.activeElement;
         if (!focused || focused === document.body) return;
 
-        // Input fields: Enter should submit the form, but on SBB
-        // we also try to trigger the soft keyboard by clicking the
-        // input (some STBs show the keyboard on click, not focus)
+        // Input fields: on SBB, open the on-screen keyboard
         if (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') {
-          if (isSBB && !focused._sbbKeyboardShown) {
-            // First Enter press: try to trigger soft keyboard
-            focused._sbbKeyboardShown = true;
-            focused.click();
+          if (isSBB) {
             e.preventDefault();
+            openKeyboard(focused);
             return;
           }
-          // Subsequent Enter: allow form submission
-          focused._sbbKeyboardShown = false;
+          // Non-SBB: allow default behavior (form submission)
           return;
         }
 
@@ -380,6 +684,11 @@
 
     // Prevent keyup default for navigation keys (also capture phase)
     document.addEventListener('keyup', function(e) {
+      if (_kbdOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       var nav = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Escape'];
       if (nav.indexOf(e.key) !== -1) {
         var tag = document.activeElement ? document.activeElement.tagName : '';

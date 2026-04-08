@@ -48,3 +48,111 @@ ds-input:focus-visible {
 .foxtel-sbb body {
     margin: 5.0vh 5.0vw;
 }
+
+/* --- SBB Virtual Keyboard --- */
+#sbb-kbd-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.88);
+    z-index: 99999;
+    align-items: flex-end;
+    justify-content: center;
+}
+#sbb-kbd-overlay.sbb-kbd-visible {
+    display: flex;
+}
+#sbb-kbd-container {
+    width: 90vw;
+    max-width: 720px;
+    margin-bottom: 5vh;
+    padding: 16px 12px;
+    background: #1a1a1a;
+    border-radius: 12px;
+    border: 1px solid #333;
+}
+#sbb-kbd-preview {
+    width: 100%;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: #111;
+    border: 2px solid #444;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 26px;
+    font-family: monospace;
+    min-height: 48px;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+#sbb-kbd-preview .sbb-kbd-cursor {
+    color: #FFB800;
+    animation: sbb-kbd-blink 1s step-end infinite;
+}
+#sbb-kbd-label {
+    color: #999;
+    font-size: 14px;
+    margin-bottom: 4px;
+    padding-left: 4px;
+}
+@keyframes sbb-kbd-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+.sbb-kbd-row {
+    display: flex;
+    justify-content: center;
+    margin: 3px 0;
+}
+.sbb-kbd-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    height: 48px;
+    margin: 2px;
+    padding: 0 8px;
+    background: #333;
+    color: #fff;
+    font-size: 20px;
+    font-family: sans-serif;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    box-sizing: border-box;
+    border: 2px solid transparent;
+}
+.sbb-kbd-key.sbb-kbd-highlight {
+    border-color: #FFB800;
+    background: #4a4a00;
+    color: #FFB800;
+}
+.sbb-kbd-key.sbb-kbd-wide {
+    min-width: 88px;
+    font-size: 16px;
+}
+.sbb-kbd-key.sbb-kbd-space {
+    flex: 1;
+    max-width: 320px;
+    font-size: 16px;
+}
+.sbb-kbd-key.sbb-kbd-done {
+    min-width: 100px;
+    font-size: 16px;
+    background: #1a4a00;
+    color: #7fff00;
+}
+.sbb-kbd-key.sbb-kbd-done.sbb-kbd-highlight {
+    background: #2a6a00;
+    border-color: #FFB800;
+    color: #FFB800;
+}
+.sbb-kbd-key.sbb-kbd-shift-on {
+    background: #4a4a00;
+    color: #FFB800;
+}
