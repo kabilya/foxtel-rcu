@@ -140,15 +140,12 @@
         var inner = el.querySelector('input');
         if (inner) return inner;
       }
-      // UScreen <ds-button>: focus the inner <button>
+      // UScreen <ds-button>: uses shadowrootdelegatesfocus so
+      // focusing the host element delegates to the inner button.
+      // Do NOT querySelector('button') — it finds a hidden
+      // off-screen fallback button instead of the shadow DOM one.
       if (el.tagName === 'DS-BUTTON') {
-        var btn = el.querySelector('button');
-        if (btn) return btn;
-        // Try shadow DOM
-        if (el.shadowRoot) {
-          btn = el.shadowRoot.querySelector('button');
-          if (btn) return btn;
-        }
+        return el;
       }
       return el;
     }
@@ -227,14 +224,17 @@
           }
         }
 
-        // UScreen <ds-button>: click the inner button
+        // UScreen <ds-button>: click the element directly.
+        // The shadow DOM delegates focus/click to the inner button.
+        // Also check for onclick handlers (e.g. "Sign in with password")
         if (focused.tagName === 'DS-BUTTON') {
-          var innerBtn = focused.querySelector('button');
-          if (innerBtn) {
-            innerBtn.click();
-            e.preventDefault();
-            return;
+          if (focused.onclick) {
+            focused.onclick();
+          } else {
+            focused.click();
           }
+          e.preventDefault();
+          return;
         }
 
         // Theme video play-button overlay
