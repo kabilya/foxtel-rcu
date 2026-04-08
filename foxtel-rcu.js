@@ -132,7 +132,13 @@
 
     // Focus the best starting element on the page
     function focusFirst() {
-      // Prefer input fields (login page), then links/buttons
+      // Prefer video-player (video detail pages)
+      var vp = document.querySelector('video-player');
+      if (vp && vp.getBoundingClientRect().height > 0) {
+        vp.focus();
+        return;
+      }
+      // Then input fields (login page)
       var input = document.querySelector('input:not([type="hidden"]):not([disabled])');
       if (input && input.offsetParent !== null) {
         input.focus();
