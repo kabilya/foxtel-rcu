@@ -1,0 +1,50 @@
+/**
+ * Foxtel SBB Remote Control Focus Styles
+ * Add to UScreen Snippets > Common pages (CSS)
+ */
+
+/* Focus ring on all interactive elements (SBB only) */
+.foxtel-sbb a:focus,
+.foxtel-sbb button:focus,
+.foxtel-sbb [tabindex="0"]:focus,
+.foxtel-sbb input:focus,
+.foxtel-sbb select:focus,
+.foxtel-sbb textarea:focus,
+.foxtel-sbb video:focus,
+.foxtel-sbb video-player:focus,
+.foxtel-sbb ds-button:focus,
+.foxtel-sbb ds-input:focus,
+.foxtel-sbb [onclick]:focus {
+    outline: 3px solid #FFB800 !important;
+    outline-offset: 2px;
+    border-radius: 4px;
+    z-index: 9999;
+    position: relative;
+}
+
+/* Keyboard-only focus ring for desktop testing */
+a:focus-visible,
+button:focus-visible,
+[tabindex="0"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+ds-button:focus-visible,
+ds-input:focus-visible {
+    outline: 3px solid #FFB800;
+    outline-offset: 2px;
+}
+
+/* Scale up focused cards/slides for TV visibility */
+.foxtel-sbb .swiper-slide:focus-within,
+.foxtel-sbb .tiled-gallery-item:focus-within,
+.foxtel-sbb .pricing-card:focus-within,
+.foxtel-sbb .social-feed-item:focus-within {
+    transform: scale(1.03);
+    transition: transform 0.15s ease;
+}
+
+/* SBB safe area margins (5% each edge per Foxtel spec) */
+.foxtel-sbb body {
+    margin: 5.0vh 5.0vw;
+}
