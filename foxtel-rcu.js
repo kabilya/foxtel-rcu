@@ -166,11 +166,12 @@
     var _kbdTarget = null;
     var _kbdIsPassword = false;
     var _kbdShift = false;
-    var _kbdRow = 1;
+    var _kbdRow = 2;
     var _kbdCol = 0;
     var _kbdRows = [];  // 2D array of key elements
 
     var KBD_LAYOUTS = [
+      [{l:'1', k:'1'}, {l:'2', k:'2'}, {l:'3', k:'3'}, {l:'4', k:'4'}, {l:'5', k:'5'}, {l:'6', k:'6'}, {l:'7', k:'7'}, {l:'8', k:'8'}, {l:'9', k:'9'}, {l:'0', k:'0'}],
       [{l:'@', k:'@'}, {l:'.', k:'.'}, {l:'.com', a:'dotcom'}, {l:'-', k:'-'}, {l:'_', k:'_'}],
       [{l:'q'}, {l:'w'}, {l:'e'}, {l:'r'}, {l:'t'}, {l:'y'}, {l:'u'}, {l:'i'}, {l:'o'}, {l:'p'}],
       [{l:'a'}, {l:'s'}, {l:'d'}, {l:'f'}, {l:'g'}, {l:'h'}, {l:'j'}, {l:'k'}, {l:'l'}],
@@ -304,7 +305,7 @@
       }
 
       _kbdShift = false;
-      _kbdRow = 1;
+      _kbdRow = 2;
       _kbdCol = 0;
       _kbdOpen = true;
       _kbdOverlay.className = 'sbb-kbd-visible';
@@ -357,8 +358,8 @@
     }
 
     function kbdUpdateShiftDisplay() {
-      // Update letter key labels and shift key styling
-      for (var r = 1; r <= 3; r++) {
+      // Update letter key labels and shift key styling (rows 2-4 with number row)
+      for (var r = 2; r <= 4; r++) {
         for (var c = 0; c < _kbdRows[r].length; c++) {
           var keyEl = _kbdRows[r][c];
           var action = keyEl.getAttribute('data-action');
