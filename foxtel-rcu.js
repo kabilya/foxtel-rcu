@@ -22,23 +22,6 @@
   var isSBB = /ADBChromium|Foxtel_STB/i.test(navigator.userAgent);
 
   function init() {
-    if (isSBB) {
-      document.body.classList.add('foxtel-sbb');
-
-      // Make video elements focusable
-      document.querySelectorAll('video').forEach(function(v) {
-        if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
-      });
-
-      // Hint to the SBB that text inputs should trigger the soft keyboard
-      document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
-        if (!inp.hasAttribute('inputmode')) {
-          inp.setAttribute('inputmode', inp.type === 'email' ? 'email' : 'text');
-        }
-        inp.setAttribute('enterkeyhint', 'done');
-      });
-    }
-
     // --- Focusable element selector ---
     var FOCUSABLE = [
       'a[href]:not([disabled]):not([aria-hidden="true"])',
@@ -358,8 +341,8 @@
     }
 
     function kbdUpdateShiftDisplay() {
-      // Update letter key labels and shift key styling
-      for (var r = 1; r <= 3; r++) {
+      // Update letter key labels and shift key styling (rows 2-4 = qwerty, asdf, shift+zxcv)
+      for (var r = 2; r <= 4; r++) {
         for (var c = 0; c < _kbdRows[r].length; c++) {
           var keyEl = _kbdRows[r][c];
           var action = keyEl.getAttribute('data-action');
@@ -443,10 +426,40 @@
       kbdUpdatePreview();
     }
 
-    if (isSBB) {
-      buildKeyboard();
+    // SBB setup — runs on initial load and after Turbo navigation
+    function sbbSetup() {
+      if (!isSBB) return;
+      document.body.classList.add('foxtel-sbb');
+
+      // Rebuild keyboard if Turbo replaced the body
+      if (!document.getElementById('sbb-kbd-overlay')) {
+        _kbdOverlay = null;
+        _kbdRows = [];
+        _kbdOpen = false;
+        buildKeyboard();
+      }
+
+      // Make video elements focusable
+      document.querySelectorAll('video').forEach(function(v) {
+        if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
+      });
+
+      // Input hints for SBB
+      document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
+        if (!inp.hasAttribute('inputmode')) {
+          inp.setAttribute('inputmode', inp.type === 'email' ? 'email' : 'text');
+        }
+        inp.setAttribute('enterkeyhint', 'done');
+      });
+
       focusFirst();
     }
+
+    sbbSetup();
+
+    // Re-run setup after Turbo page navigation
+    document.addEventListener('turbo:load', sbbSetup);
+    document.addEventListener('turbo:render', sbbSetup);
 
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
