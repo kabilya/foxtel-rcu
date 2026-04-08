@@ -502,7 +502,8 @@
           var all = getVisibleFocusables();
           for (var j = 0; j < all.length; j++) {
             if (all[j] === active) continue;
-            if (all[j].tagName === 'INPUT' || all[j].tagName === 'TEXTAREA') continue;
+            // Skip the parent ds-input of the current input (avoid double-match)
+            if (all[j].contains && all[j].contains(active)) continue;
             var cr = all[j].getBoundingClientRect();
             var cy = cr.top + cr.height / 2;
             var dy = cy - inputCy;
