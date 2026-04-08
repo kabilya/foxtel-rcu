@@ -22,6 +22,23 @@
   var isSBB = /ADBChromium|Foxtel_STB/i.test(navigator.userAgent);
 
   function init() {
+    if (isSBB) {
+      document.body.classList.add('foxtel-sbb');
+
+      // Make video elements focusable
+      document.querySelectorAll('video').forEach(function(v) {
+        if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
+      });
+
+      // Hint to the SBB that text inputs should trigger the soft keyboard
+      document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
+        if (!inp.hasAttribute('inputmode')) {
+          inp.setAttribute('inputmode', inp.type === 'email' ? 'email' : 'text');
+        }
+        inp.setAttribute('enterkeyhint', 'done');
+      });
+    }
+
     // --- Focusable element selector ---
     var FOCUSABLE = [
       'a[href]:not([disabled]):not([aria-hidden="true"])',
@@ -149,12 +166,11 @@
     var _kbdTarget = null;
     var _kbdIsPassword = false;
     var _kbdShift = false;
-    var _kbdRow = 2;
+    var _kbdRow = 1;
     var _kbdCol = 0;
     var _kbdRows = [];  // 2D array of key elements
 
     var KBD_LAYOUTS = [
-      [{l:'1', k:'1'}, {l:'2', k:'2'}, {l:'3', k:'3'}, {l:'4', k:'4'}, {l:'5', k:'5'}, {l:'6', k:'6'}, {l:'7', k:'7'}, {l:'8', k:'8'}, {l:'9', k:'9'}, {l:'0', k:'0'}],
       [{l:'@', k:'@'}, {l:'.', k:'.'}, {l:'.com', a:'dotcom'}, {l:'-', k:'-'}, {l:'_', k:'_'}],
       [{l:'q'}, {l:'w'}, {l:'e'}, {l:'r'}, {l:'t'}, {l:'y'}, {l:'u'}, {l:'i'}, {l:'o'}, {l:'p'}],
       [{l:'a'}, {l:'s'}, {l:'d'}, {l:'f'}, {l:'g'}, {l:'h'}, {l:'j'}, {l:'k'}, {l:'l'}],
@@ -288,7 +304,7 @@
       }
 
       _kbdShift = false;
-      _kbdRow = 2;
+      _kbdRow = 1;
       _kbdCol = 0;
       _kbdOpen = true;
       _kbdOverlay.className = 'sbb-kbd-visible';
@@ -341,8 +357,8 @@
     }
 
     function kbdUpdateShiftDisplay() {
-      // Update letter key labels and shift key styling (rows 2-4 = qwerty, asdf, shift+zxcv)
-      for (var r = 2; r <= 4; r++) {
+      // Update letter key labels and shift key styling
+      for (var r = 1; r <= 3; r++) {
         for (var c = 0; c < _kbdRows[r].length; c++) {
           var keyEl = _kbdRows[r][c];
           var action = keyEl.getAttribute('data-action');
@@ -426,42 +442,10 @@
       kbdUpdatePreview();
     }
 
-    // SBB setup — runs on initial load and after Turbo navigation
-    function sbbSetup() {
-      if (!isSBB) return;
-      document.body.classList.add('foxtel-sbb');
-
-      // Rebuild keyboard if Turbo replaced the body
-      if (!document.getElementById('sbb-kbd-overlay')) {
-        _kbdOverlay = null;
-        _kbdRows = [];
-        _kbdOpen = false;
-        buildKeyboard();
-      }
-
-      // Make video elements focusable
-      document.querySelectorAll('video').forEach(function(v) {
-        if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
-      });
-
-      // Input hints for SBB
-      document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
-        if (!inp.hasAttribute('inputmode')) {
-          inp.setAttribute('inputmode', inp.type === 'email' ? 'email' : 'text');
-        }
-        inp.setAttribute('enterkeyhint', 'done');
-      });
-
+    if (isSBB) {
+      buildKeyboard();
       focusFirst();
     }
-
-    sbbSetup();
-
-    // Re-run setup after Turbo page/frame navigation
-    document.addEventListener('turbo:load', sbbSetup);
-    document.addEventListener('turbo:render', sbbSetup);
-    document.addEventListener('turbo:frame-load', sbbSetup);
-    document.addEventListener('turbo:frame-render', sbbSetup);
 
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
