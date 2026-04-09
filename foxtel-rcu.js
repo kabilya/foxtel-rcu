@@ -172,13 +172,14 @@
     var _kbdTarget = null;
     var _kbdIsPassword = false;
     var _kbdShift = false;
-    var _kbdRow = 2;
+    var _kbdRow = 3;
     var _kbdCol = 0;
     var _kbdRows = [];  // 2D array of key elements
 
     var KBD_LAYOUTS = [
       [{l:'1', k:'1'}, {l:'2', k:'2'}, {l:'3', k:'3'}, {l:'4', k:'4'}, {l:'5', k:'5'}, {l:'6', k:'6'}, {l:'7', k:'7'}, {l:'8', k:'8'}, {l:'9', k:'9'}, {l:'0', k:'0'}],
-      [{l:'@', k:'@'}, {l:'.', k:'.'}, {l:'.com', a:'dotcom'}, {l:'-', k:'-'}, {l:'_', k:'_'}],
+      [{l:'!', k:'!'}, {l:'@', k:'@'}, {l:'#', k:'#'}, {l:'$', k:'$'}, {l:'%', k:'%'}, {l:'&', k:'&'}, {l:'*', k:'*'}, {l:'+', k:'+'}, {l:'=', k:'='}, {l:'?', k:'?'}],
+      [{l:'.', k:'.'}, {l:'.com', a:'dotcom'}, {l:'-', k:'-'}, {l:'_', k:'_'}, {l:'/', k:'/'}, {l:'(', k:'('}, {l:')', k:')'}, {l:'"', k:'"'}, {l:"'", k:"'"}],
       [{l:'q'}, {l:'w'}, {l:'e'}, {l:'r'}, {l:'t'}, {l:'y'}, {l:'u'}, {l:'i'}, {l:'o'}, {l:'p'}],
       [{l:'a'}, {l:'s'}, {l:'d'}, {l:'f'}, {l:'g'}, {l:'h'}, {l:'j'}, {l:'k'}, {l:'l'}],
       [{l:'SHIFT', a:'shift', w:true}, {l:'z'}, {l:'x'}, {l:'c'}, {l:'v'}, {l:'b'}, {l:'n'}, {l:'m'}, {l:'DEL', a:'backspace', w:true}],
@@ -278,7 +279,15 @@
     }
 
     function openKeyboard(inputEl) {
+      // Rebuild keyboard if Turbo navigation destroyed it
+      if (!_kbdOverlay || !document.getElementById('sbb-kbd-overlay')) {
+        _kbdOverlay = null;
+        _kbdRows = [];
+        buildKeyboard();
+      }
       if (!_kbdOverlay) return;
+      // Ensure SBB class is on body (Turbo may have replaced it)
+      document.body.classList.add('foxtel-sbb');
       // Resolve to the actual <input> inside <ds-input>
       _kbdTarget = getFocusTarget(inputEl);
       // Walk up to check if it's inside a ds-input with type password
@@ -311,7 +320,7 @@
       }
 
       _kbdShift = false;
-      _kbdRow = 2;
+      _kbdRow = 3;
       _kbdCol = 0;
       _kbdOpen = true;
       _kbdOverlay.className = 'sbb-kbd-visible';
@@ -364,8 +373,8 @@
     }
 
     function kbdUpdateShiftDisplay() {
-      // Update letter key labels and shift key styling (rows 2-4 with number row)
-      for (var r = 2; r <= 4; r++) {
+      // Update letter key labels and shift key styling (rows 3-5 = qwerty rows)
+      for (var r = 3; r <= 5; r++) {
         for (var c = 0; c < _kbdRows[r].length; c++) {
           var keyEl = _kbdRows[r][c];
           var action = keyEl.getAttribute('data-action');
