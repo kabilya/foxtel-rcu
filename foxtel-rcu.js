@@ -585,28 +585,11 @@
           return;
         }
 
-        // UScreen <video-player> Web Component: play and enter fullscreen
+        // UScreen <video-player> Web Component has its own keyboard
+        // handler (Enter toggles fullscreen + play). Let it handle natively.
         if (focused.tagName === 'VIDEO-PLAYER' ||
             (focused.closest && focused.closest('video-player'))) {
-          var vp = focused.tagName === 'VIDEO-PLAYER' ? focused : focused.closest('video-player');
-          var vid = vp.querySelector('video');
-          if (vid) {
-            if (vid.paused) {
-              vid.play();
-              // Enter fullscreen for TV viewing experience
-              var fsEl = vid.requestFullscreen ? vid :
-                         vid.webkitRequestFullscreen ? vid : vp;
-              if (fsEl.requestFullscreen) {
-                fsEl.requestFullscreen();
-              } else if (fsEl.webkitRequestFullscreen) {
-                fsEl.webkitRequestFullscreen();
-              }
-            } else {
-              vid.pause();
-            }
-            e.preventDefault();
-            return;
-          }
+          return; // don't preventDefault — let UScreen handle it
         }
 
         // UScreen <ds-button>: click the element directly.
