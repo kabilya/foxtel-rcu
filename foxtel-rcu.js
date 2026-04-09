@@ -19,7 +19,7 @@
   'use strict';
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
-  var isSBB = /ADBChromium|Foxtel_STB/i.test(navigator.userAgent);
+  var isSBB = /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent);
 
   function init() {
     if (isSBB) {
