@@ -74,6 +74,35 @@
           }
         }
       }
+      // De-duplicate <a> elements with same href near each other (slider cards
+      // render image + text as separate links to the same URL)
+      var deduped = [];
+      var seen = {};
+      for (var j = 0; j < out.length; j++) {
+        var el2 = out[j];
+        if (el2.tagName !== 'A' || !el2.href) {
+          deduped.push(el2);
+          continue;
+        }
+        var href = el2.href;
+        var r2 = el2.getBoundingClientRect();
+        var cy2 = r2.top + r2.height / 2;
+        var area2 = r2.width * r2.height;
+        if (seen[href]) {
+          var prev = seen[href];
+          if (Math.abs(prev.cy - cy2) < 50) {
+            if (area2 > prev.area) {
+              deduped[prev.index] = el2;
+              seen[href] = { cy: cy2, area: area2, index: prev.index };
+            }
+            continue;
+          }
+        }
+        seen[href] = { cy: cy2, area: area2, index: deduped.length };
+        deduped.push(el2);
+      }
+      out = deduped;
+
       return out;
     }
 
@@ -463,6 +492,37 @@
       focusFirst();
     }
 
+    // --- Auto-retry for "stream not active" errors ---
+    // Turbo can destroy/recreate video-player mid-init, breaking HLS.
+    // Detect error state and do one full page reload to bypass Turbo.
+    var VIDEO_RETRY_KEY = '_videoRetried';
+    function checkVideoError() {
+      var vp = document.querySelector('video-player');
+      if (!vp) {
+        sessionStorage.removeItem(VIDEO_RETRY_KEY);
+        return;
+      }
+      var text = (vp.textContent || '').toLowerCase();
+      var hasError = text.indexOf('not active') !== -1 ||
+                     text.indexOf('attempting to establish') !== -1;
+      if (!hasError) {
+        sessionStorage.removeItem(VIDEO_RETRY_KEY);
+        return;
+      }
+      // Already retried once — don't loop
+      if (sessionStorage.getItem(VIDEO_RETRY_KEY)) {
+        sessionStorage.removeItem(VIDEO_RETRY_KEY);
+        return;
+      }
+      sessionStorage.setItem(VIDEO_RETRY_KEY, '1');
+      window.location.reload();
+    }
+    function scheduleVideoCheck() {
+      setTimeout(checkVideoError, 3000);
+    }
+    scheduleVideoCheck();
+    document.addEventListener('turbo:load', scheduleVideoCheck);
+
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
     // elements like <ds-input> can consume them
@@ -592,9 +652,14 @@
           var vp = focused.tagName === 'VIDEO-PLAYER' ? focused : focused.closest('video-player');
           var vid = vp.querySelector('video');
           if (vid) {
-            // Let UScreen's handler run first (fullscreen), then play
+            // Let UScreen's handler run first (fullscreen), then play.
+            // Re-query from DOM in case Turbo replaced the element.
             setTimeout(function() {
-              if (vid.paused) vid.play();
+              var currentVp = document.querySelector('video-player');
+              var currentVid = currentVp ? currentVp.querySelector('video') : null;
+              if (currentVid && currentVid.paused) {
+                currentVid.play().catch(function() {});
+              }
             }, 500);
           }
           return; // don't preventDefault — let UScreen handle fullscreen
