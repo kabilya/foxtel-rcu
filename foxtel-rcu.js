@@ -674,17 +674,29 @@
           var vp = focused.tagName === 'VIDEO-PLAYER' ? focused : focused.closest('video-player');
           var vid = vp.querySelector('video');
           if (vid) {
+            // Unmute immediately while we still have user gesture context
+            var vidRef = vp.querySelector('video');
+            if (vidRef) {
+              vidRef.muted = false;
+              vidRef.volume = 1;
+            }
             setTimeout(function() {
               var currentVp = document.querySelector('video-player');
               var currentVid = currentVp ? currentVp.querySelector('video') : null;
               if (!currentVid) return;
+              currentVid.muted = false;
+              currentVid.volume = 1;
               // If HLS fallback hasn't loaded yet, trigger it now
               if (currentVid.readyState === 0) {
                 fixVideoPlayback();
                 // Wait for HLS to load manifest, then play
                 setTimeout(function() {
                   var v = document.querySelector('video-player video');
-                  if (v && v.paused) v.play().catch(function() {});
+                  if (v) {
+                    v.muted = false;
+                    v.volume = 1;
+                    if (v.paused) v.play().catch(function() {});
+                  }
                 }, 1500);
               } else if (currentVid.paused) {
                 currentVid.play().catch(function() {});
