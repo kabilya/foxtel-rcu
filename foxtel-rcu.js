@@ -492,36 +492,57 @@
       focusFirst();
     }
 
-    // --- Auto-retry for "stream not active" errors ---
-    // Turbo can destroy/recreate video-player mid-init, breaking HLS.
-    // Detect error state and do one full page reload to bypass Turbo.
-    var VIDEO_RETRY_KEY = '_videoRetried';
-    function checkVideoError() {
+    // --- HLS Fallback for SBB ---
+    // UScreen's video-player component often fails to initialize its
+    // internal HLS player on the SBB's Chromium 105. When we detect a
+    // video with readyState 0 / networkState 3, manually load hls.js
+    // and attach it to the <video> element.
+    var _hlsInstance = null;
+    var HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.7/+esm';
+
+    function fixVideoPlayback() {
       var vp = document.querySelector('video-player');
-      if (!vp) {
-        sessionStorage.removeItem(VIDEO_RETRY_KEY);
-        return;
-      }
-      var text = (vp.textContent || '').toLowerCase();
-      var hasError = text.indexOf('not active') !== -1 ||
-                     text.indexOf('attempting to establish') !== -1;
-      if (!hasError) {
-        sessionStorage.removeItem(VIDEO_RETRY_KEY);
-        return;
-      }
-      // Already retried once — don't loop
-      if (sessionStorage.getItem(VIDEO_RETRY_KEY)) {
-        sessionStorage.removeItem(VIDEO_RETRY_KEY);
-        return;
-      }
-      sessionStorage.setItem(VIDEO_RETRY_KEY, '1');
-      window.location.reload();
+      if (!vp) return;
+      var vid = vp.querySelector('video');
+      if (!vid) return;
+      // Only intervene if the video hasn't loaded (readyState 0 = HAVE_NOTHING)
+      if (vid.readyState > 0) return;
+      var source = vid.querySelector('source');
+      if (!source || !source.src) return;
+      var src = source.src;
+      // Only fix .m3u8 (HLS) streams
+      if (src.indexOf('.m3u8') === -1) return;
+
+      // Dynamically import hls.js and attach to the video
+      import(HLS_CDN).then(function(m) {
+        var Hls = m.default;
+        if (!Hls.isSupported()) return;
+        // Clean up any previous instance
+        if (_hlsInstance) {
+          _hlsInstance.destroy();
+          _hlsInstance = null;
+        }
+        var hls = new Hls();
+        _hlsInstance = hls;
+        hls.loadSource(src);
+        hls.attachMedia(vid);
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          if (data.fatal) {
+            console.log('RCU: HLS fatal error', data.type, data.details);
+            hls.destroy();
+            _hlsInstance = null;
+          }
+        });
+      }).catch(function(e) {
+        console.log('RCU: failed to load hls.js', e.message);
+      });
     }
-    function scheduleVideoCheck() {
-      setTimeout(checkVideoError, 3000);
+
+    function scheduleVideoFix() {
+      setTimeout(fixVideoPlayback, 2000);
     }
-    scheduleVideoCheck();
-    document.addEventListener('turbo:load', scheduleVideoCheck);
+    scheduleVideoFix();
+    document.addEventListener('turbo:load', scheduleVideoFix);
 
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
@@ -646,18 +667,26 @@
         }
 
         // UScreen <video-player>: let UScreen handle Enter for fullscreen,
-        // then play the video after a short delay to avoid race conditions
+        // then play the video after a short delay to avoid race conditions.
+        // If UScreen's player failed to init, our HLS fallback handles it.
         if (focused.tagName === 'VIDEO-PLAYER' ||
             (focused.closest && focused.closest('video-player'))) {
           var vp = focused.tagName === 'VIDEO-PLAYER' ? focused : focused.closest('video-player');
           var vid = vp.querySelector('video');
           if (vid) {
-            // Let UScreen's handler run first (fullscreen), then play.
-            // Re-query from DOM in case Turbo replaced the element.
             setTimeout(function() {
               var currentVp = document.querySelector('video-player');
               var currentVid = currentVp ? currentVp.querySelector('video') : null;
-              if (currentVid && currentVid.paused) {
+              if (!currentVid) return;
+              // If HLS fallback hasn't loaded yet, trigger it now
+              if (currentVid.readyState === 0) {
+                fixVideoPlayback();
+                // Wait for HLS to load manifest, then play
+                setTimeout(function() {
+                  var v = document.querySelector('video-player video');
+                  if (v && v.paused) v.play().catch(function() {});
+                }, 1500);
+              } else if (currentVid.paused) {
                 currentVid.play().catch(function() {});
               }
             }, 500);
