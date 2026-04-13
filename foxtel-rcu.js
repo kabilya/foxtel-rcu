@@ -492,6 +492,25 @@
       focusFirst();
     }
 
+    // --- Fullscreen helpers ---
+    function enterFullscreen(el) {
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(function() {});
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      }
+    }
+
+    function exitFullscreen() {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(function() {});
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      }
+    }
+
     // --- HLS Fallback for SBB ---
     // UScreen's video-player component often fails to initialize its
     // internal HLS player on the SBB's Chromium 105. When we detect a
@@ -666,44 +685,42 @@
           return;
         }
 
-        // UScreen <video-player>: let UScreen handle Enter for fullscreen,
-        // then play the video after a short delay to avoid race conditions.
-        // If UScreen's player failed to init, our HLS fallback handles it.
+        // UScreen <video-player>: play + enter fullscreen on Enter/OK.
+        // We handle this ourselves because UScreen's player fails on SBB.
         if (focused.tagName === 'VIDEO-PLAYER' ||
             (focused.closest && focused.closest('video-player'))) {
+          e.preventDefault();
+          e.stopPropagation();
           var vp = focused.tagName === 'VIDEO-PLAYER' ? focused : focused.closest('video-player');
           var vid = vp.querySelector('video');
           if (vid) {
             // Unmute immediately while we still have user gesture context
-            var vidRef = vp.querySelector('video');
-            if (vidRef) {
-              vidRef.muted = false;
-              vidRef.volume = 1;
+            vid.muted = false;
+            vid.volume = 1;
+            // If already playing, toggle pause and exit fullscreen
+            if (!vid.paused) {
+              vid.pause();
+              exitFullscreen();
+              return;
             }
-            setTimeout(function() {
-              var currentVp = document.querySelector('video-player');
-              var currentVid = currentVp ? currentVp.querySelector('video') : null;
-              if (!currentVid) return;
-              currentVid.muted = false;
-              currentVid.volume = 1;
-              // If HLS fallback hasn't loaded yet, trigger it now
-              if (currentVid.readyState === 0) {
-                fixVideoPlayback();
-                // Wait for HLS to load manifest, then play
-                setTimeout(function() {
-                  var v = document.querySelector('video-player video');
-                  if (v) {
-                    v.muted = false;
-                    v.volume = 1;
-                    if (v.paused) v.play().catch(function() {});
-                  }
-                }, 1500);
-              } else if (currentVid.paused) {
-                currentVid.play().catch(function() {});
-              }
-            }, 500);
+            // Enter fullscreen on the video element
+            enterFullscreen(vid);
+            // If HLS hasn't loaded, trigger fallback then play
+            if (vid.readyState === 0) {
+              fixVideoPlayback();
+              setTimeout(function() {
+                var v = document.querySelector('video-player video');
+                if (v) {
+                  v.muted = false;
+                  v.volume = 1;
+                  if (v.paused) v.play().catch(function() {});
+                }
+              }, 1500);
+            } else {
+              vid.play().catch(function() {});
+            }
           }
-          return; // don't preventDefault — let UScreen handle fullscreen
+          return;
         }
 
         // UScreen <ds-button>: click the element directly.
@@ -735,13 +752,11 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
-        // If in fullscreen, exit fullscreen explicitly
+        // If in fullscreen, exit fullscreen and pause video
         if (document.fullscreenElement || document.webkitFullscreenElement) {
-          if (document.exitFullscreen) {
-            document.exitFullscreen();
-          } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-          }
+          var fsVideo = document.querySelector('video');
+          if (fsVideo && !fsVideo.paused) fsVideo.pause();
+          exitFullscreen();
           e.preventDefault();
           return;
         }
@@ -795,16 +810,26 @@
       if (video) {
         switch (key) {
           case 'MediaPlayPause':
-            if (video.paused) video.play(); else video.pause();
+            if (video.paused) {
+              video.muted = false;
+              video.volume = 1;
+              video.play();
+              enterFullscreen(video);
+            } else {
+              video.pause();
+              exitFullscreen();
+            }
             e.preventDefault(); break;
           case 'MediaStop':
             video.pause(); video.currentTime = 0;
+            exitFullscreen();
             e.preventDefault(); break;
           case 'p':
             // Only pause if not typing in an input
             var pTag = document.activeElement ? document.activeElement.tagName : '';
             if (pTag !== 'INPUT' && pTag !== 'TEXTAREA') {
               video.pause();
+              exitFullscreen();
               e.preventDefault();
             }
             break;
