@@ -839,6 +839,13 @@
           next = bestLeft;
         }
         if (!next) next = findNext(active, key);
+        // If ArrowUp found nothing and there's a video-player, focus it
+        if (!next && key === 'ArrowUp') {
+          var vpEl = document.querySelector('video-player');
+          if (vpEl && vpEl.getBoundingClientRect().height > 0 && vpEl !== active) {
+            next = vpEl;
+          }
+        }
         if (next) {
           var target = getFocusTarget(next);
           target.focus();
