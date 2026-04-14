@@ -640,13 +640,12 @@
       vid.addEventListener('ended', onVideoEnded);
     }
 
-    // --- Auto-play video on page load ---
+    // --- Auto-play video on page load (no fullscreen — requires user gesture) ---
     function autoPlayVideo() {
       var vp = document.querySelector('video-player');
       if (!vp) return;
       var vid = vp.querySelector('video');
       if (!vid) return;
-      // Don't auto-play if already playing
       if (!vid.paused) return;
       vid.muted = false;
       vid.volume = 1;
@@ -658,18 +657,14 @@
           if (v && v.paused) {
             v.muted = false;
             v.volume = 1;
-            enterFullscreen(v);
-            v.play().catch(function(err) {
-              // If unmuted autoplay blocked, try muted then unmute
+            v.play().catch(function() {
               v.muted = true;
               v.play().then(function() { v.muted = false; }).catch(function() {});
             });
           }
         }, 1500);
       } else {
-        enterFullscreen(vid);
-        vid.play().catch(function(err) {
-          // If unmuted autoplay blocked, try muted then unmute
+        vid.play().catch(function() {
           vid.muted = true;
           vid.play().then(function() { vid.muted = false; }).catch(function() {});
         });
@@ -902,6 +897,12 @@
         e.preventDefault();
         e.stopPropagation();
 
+        // Pause any playing video before navigating back
+        var playingVid = document.querySelector('video');
+        if (playingVid && !playingVid.paused) {
+          playingVid.pause();
+        }
+
         // Blur any focused input/button first so shadow DOM
         // doesn't swallow the event
         var ae = document.activeElement;
@@ -927,9 +928,16 @@
           e.preventDefault();
           return;
         }
-        // Always attempt to go back — history.length can be unreliable
-        // on SBB. If there's no history, this is a no-op.
+        // Go back. If no history (common on SBB), fall back to catalog/home.
+        var beforeBack = window.location.href;
         window.history.back();
+        // Check after a short delay if navigation happened
+        setTimeout(function() {
+          if (window.location.href === beforeBack) {
+            // history.back() didn't navigate — go to catalog
+            window.location.href = '/catalog';
+          }
+        }, 300);
         e.preventDefault();
         return;
       }
