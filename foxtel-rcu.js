@@ -640,15 +640,49 @@
       vid.addEventListener('ended', onVideoEnded);
     }
 
-    if (isSBB) {
-      setTimeout(enableAutoplay, 3000);
-      setTimeout(setupAutoplayNext, 3000);
-    }
-    document.addEventListener('turbo:load', function() {
-      if (isSBB) {
-        setTimeout(enableAutoplay, 2000);
-        setTimeout(setupAutoplayNext, 2000);
+    // --- Auto-play video on page load ---
+    function autoPlayVideo() {
+      var vp = document.querySelector('video-player');
+      if (!vp) return;
+      var vid = vp.querySelector('video');
+      if (!vid) return;
+      // Don't auto-play if already playing
+      if (!vid.paused) return;
+      vid.muted = false;
+      vid.volume = 1;
+      // If HLS hasn't loaded on SBB, trigger fallback first
+      if (vid.readyState === 0 && isSBB) {
+        fixVideoPlayback();
+        setTimeout(function() {
+          var v = document.querySelector('video-player video');
+          if (v && v.paused) {
+            v.muted = false;
+            v.volume = 1;
+            enterFullscreen(v);
+            v.play().catch(function(err) {
+              // If unmuted autoplay blocked, try muted then unmute
+              v.muted = true;
+              v.play().then(function() { v.muted = false; }).catch(function() {});
+            });
+          }
+        }, 1500);
+      } else {
+        enterFullscreen(vid);
+        vid.play().catch(function(err) {
+          // If unmuted autoplay blocked, try muted then unmute
+          vid.muted = true;
+          vid.play().then(function() { vid.muted = false; }).catch(function() {});
+        });
       }
+    }
+
+    setTimeout(enableAutoplay, 3000);
+    setTimeout(setupAutoplayNext, 3000);
+    setTimeout(autoPlayVideo, 3000);
+    document.addEventListener('turbo:load', function() {
+      setTimeout(enableAutoplay, 2000);
+      setTimeout(setupAutoplayNext, 2000);
+      setTimeout(autoPlayVideo, 3000);
     });
 
     // --- Main keydown handler ---
