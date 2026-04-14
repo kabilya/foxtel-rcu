@@ -780,6 +780,9 @@
 
         if (!active || active === document.body || active === document.documentElement) {
           focusFirst();
+          // Ensure the newly focused element is scrolled into view
+          var newFocus = document.activeElement;
+          if (newFocus && newFocus !== document.body) ensureVisible(newFocus);
           return;
         }
 
