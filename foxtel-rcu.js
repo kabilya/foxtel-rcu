@@ -640,7 +640,9 @@
       vid.addEventListener('ended', onVideoEnded);
     }
 
-    // --- Auto-play video on page load (no fullscreen — requires user gesture) ---
+    // --- Auto-play video on page load ---
+    // SBB's embedded Chromium allows fullscreen without user gesture.
+    // Desktop Chrome does not, so only auto-fullscreen on SBB.
     function autoPlayVideo() {
       var vp = document.querySelector('video-player');
       if (!vp) return;
@@ -657,6 +659,7 @@
           if (v && v.paused) {
             v.muted = false;
             v.volume = 1;
+            if (isSBB) enterFullscreen(v);
             v.play().catch(function() {
               v.muted = true;
               v.play().then(function() { v.muted = false; }).catch(function() {});
@@ -664,6 +667,7 @@
           }
         }, 1500);
       } else {
+        if (isSBB) enterFullscreen(vid);
         vid.play().catch(function() {
           vid.muted = true;
           vid.play().then(function() { vid.muted = false; }).catch(function() {});
