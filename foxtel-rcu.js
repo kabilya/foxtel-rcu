@@ -54,6 +54,7 @@
       'ds-button',
       'ds-input',
       '[role="button"]:not([disabled])',
+      '[role="switch"]',
       '[onclick]:not([disabled])'
     ].join(', ');
 
@@ -74,6 +75,14 @@
           }
         }
       }
+      // CR1: Skip text-content slides — keep only image slides for navigation
+      var filtered = [];
+      for (var k = 0; k < out.length; k++) {
+        if (out[k].classList && out[k].classList.contains('columns--card')) continue;
+        filtered.push(out[k]);
+      }
+      out = filtered;
+
       // De-duplicate <a> elements with same href near each other (slider cards
       // render image + text as separate links to the same URL)
       var deduped = [];
@@ -81,6 +90,12 @@
       for (var j = 0; j < out.length; j++) {
         var el2 = out[j];
         if (el2.tagName !== 'A' || !el2.href) {
+          deduped.push(el2);
+          continue;
+        }
+        // CR2: Never dedup navigation links like "See All"
+        var linkText = el2.textContent ? el2.textContent.trim() : '';
+        if (linkText === 'See All' || linkText === 'See all' || linkText === 'View All') {
           deduped.push(el2);
           continue;
         }
@@ -492,6 +507,22 @@
       focusFirst();
     }
 
+    // --- Volume indicator ---
+    var _volTimer = null;
+    function showVolumeIndicator(level) {
+      var el = document.getElementById('sbb-vol-indicator');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'sbb-vol-indicator';
+        el.style.cssText = 'position:fixed;top:10%;right:5%;background:rgba(0,0,0,0.8);color:#FFB800;padding:12px 20px;border-radius:8px;font-size:24px;z-index:99998;pointer-events:none;';
+        document.body.appendChild(el);
+      }
+      el.textContent = 'Volume: ' + Math.round(level * 100) + '%';
+      el.style.display = 'block';
+      if (_volTimer) clearTimeout(_volTimer);
+      _volTimer = setTimeout(function() { el.style.display = 'none'; }, 1500);
+    }
+
     // --- Fullscreen helpers ---
     function enterFullscreen(el) {
       if (el.requestFullscreen) {
@@ -563,6 +594,63 @@
     scheduleVideoFix();
     document.addEventListener('turbo:load', scheduleVideoFix);
 
+    // --- CR5: Auto-enable autoplay on SBB ---
+    function enableAutoplay() {
+      // Try checkbox-style toggles
+      var checks = document.querySelectorAll('[class*="autoplay"] input[type="checkbox"]');
+      for (var i = 0; i < checks.length; i++) {
+        if (!checks[i].checked) {
+          checks[i].checked = true;
+          try { checks[i].dispatchEvent(new Event('change', {bubbles: true})); } catch (ex) {}
+        }
+      }
+      // Try button/switch-style toggles
+      var switches = document.querySelectorAll('[class*="autoplay"] [role="switch"], [class*="autoplay"] button');
+      for (var j = 0; j < switches.length; j++) {
+        if (switches[j].getAttribute('aria-checked') === 'false') {
+          switches[j].click();
+        }
+      }
+    }
+
+    // --- CR3: Auto-play next video when current one ends ---
+    function onVideoEnded() {
+      exitFullscreen();
+      // Look for "next video" section on the page
+      var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
+      if (nextSection) {
+        var link = nextSection.querySelector('a[href]');
+        if (link) { window.location.href = link.href; return; }
+      }
+      // Fallback: find any program link below the player that isn't the current page
+      var links = document.querySelectorAll('a[href*="/programs/"]');
+      var current = window.location.pathname;
+      for (var i = 0; i < links.length; i++) {
+        if (links[i].pathname !== current) {
+          window.location.href = links[i].href;
+          return;
+        }
+      }
+    }
+
+    function setupAutoplayNext() {
+      var vid = document.querySelector('video-player video') || document.querySelector('video');
+      if (!vid) return;
+      vid.removeEventListener('ended', onVideoEnded);
+      vid.addEventListener('ended', onVideoEnded);
+    }
+
+    if (isSBB) {
+      setTimeout(enableAutoplay, 3000);
+      setTimeout(setupAutoplayNext, 3000);
+    }
+    document.addEventListener('turbo:load', function() {
+      if (isSBB) {
+        setTimeout(enableAutoplay, 2000);
+        setTimeout(setupAutoplayNext, 2000);
+      }
+    });
+
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
     // elements like <ds-input> can consume them
@@ -596,6 +684,22 @@
       // Directional navigation (LRUD)
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
           key === 'ArrowLeft' || key === 'ArrowRight') {
+
+        // CR4: In fullscreen, Up/Down arrows control volume
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          var fsVid = document.querySelector('video');
+          if (fsVid && (key === 'ArrowUp' || key === 'ArrowDown')) {
+            if (key === 'ArrowUp') {
+              fsVid.volume = Math.min(1, Math.round((fsVid.volume + 0.1) * 10) / 10);
+              fsVid.muted = false;
+            } else {
+              fsVid.volume = Math.max(0, Math.round((fsVid.volume - 0.1) * 10) / 10);
+            }
+            showVolumeIndicator(fsVid.volume);
+            e.preventDefault();
+            return;
+          }
+        }
 
         // Check if we're inside a text input
         var active = document.activeElement;
@@ -838,6 +942,15 @@
             e.preventDefault(); break;
           case 'MediaFastForward':
             video.currentTime = Math.min(video.duration, video.currentTime + 10);
+            e.preventDefault(); break;
+          case 'VolumeUp':
+            video.volume = Math.min(1, Math.round((video.volume + 0.1) * 10) / 10);
+            video.muted = false;
+            showVolumeIndicator(video.volume);
+            e.preventDefault(); break;
+          case 'VolumeDown':
+            video.volume = Math.max(0, Math.round((video.volume - 0.1) * 10) / 10);
+            showVolumeIndicator(video.volume);
             e.preventDefault(); break;
         }
       }
