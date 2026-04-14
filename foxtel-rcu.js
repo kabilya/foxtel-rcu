@@ -785,14 +785,21 @@
 
         // Swiper carousel support
         var swiper = active.closest && active.closest('.swiper');
+        var atSwiperEnd = false;
         if (swiper && swiper.swiper) {
           if (key === 'ArrowLeft') swiper.swiper.slidePrev();
-          if (key === 'ArrowRight') swiper.swiper.slideNext();
+          if (key === 'ArrowRight') {
+            if (swiper.swiper.isEnd) {
+              atSwiperEnd = true;
+            } else {
+              swiper.swiper.slideNext();
+            }
+          }
         }
 
-        var next = findNext(active, key);
-        // If ArrowRight found nothing, try "See All" at similar Y level
-        if (!next && key === 'ArrowRight') {
+        // At end of carousel + ArrowRight: go to "See All" for this section
+        var next = null;
+        if (atSwiperEnd && key === 'ArrowRight') {
           var activeRect = active.getBoundingClientRect();
           var activeCy = activeRect.top + activeRect.height / 2;
           var seeAlls = document.querySelectorAll('.category-see-all a');
@@ -803,37 +810,35 @@
             if (saRect.width === 0) continue;
             var saCy = saRect.top + saRect.height / 2;
             var saDistY = Math.abs(saCy - activeCy);
-            if (saDistY < 150 && saDistY < bestSADist) {
+            if (saDistY < 200 && saDistY < bestSADist) {
               bestSADist = saDistY;
               bestSA = seeAlls[sa];
             }
           }
-          if (bestSA) next = bestSA;
+          next = bestSA;
         }
-        // If ArrowLeft from "See All", go back to nearest thumbnail
+        // ArrowLeft from "See All": go back to nearest thumbnail to the left
         if (!next && key === 'ArrowLeft' && active.closest && active.closest('.category-see-all')) {
-          next = findNext(active, 'ArrowLeft');
-          if (!next) {
-            var allFocus = getVisibleFocusables();
-            var actRect = active.getBoundingClientRect();
-            var actCy = actRect.top + actRect.height / 2;
-            var bestLeft = null;
-            var bestLeftDist = Infinity;
-            for (var lf = 0; lf < allFocus.length; lf++) {
-              if (allFocus[lf] === active) continue;
-              var lfRect = allFocus[lf].getBoundingClientRect();
-              var lfCy = lfRect.top + lfRect.height / 2;
-              if (Math.abs(lfCy - actCy) < 150 && lfRect.left < actRect.left) {
-                var lfDist = actRect.left - lfRect.left + Math.abs(lfCy - actCy);
-                if (lfDist < bestLeftDist) {
-                  bestLeftDist = lfDist;
-                  bestLeft = allFocus[lf];
-                }
+          var allFocus = getVisibleFocusables();
+          var actRect = active.getBoundingClientRect();
+          var actCy = actRect.top + actRect.height / 2;
+          var bestLeft = null;
+          var bestLeftDist = Infinity;
+          for (var lf = 0; lf < allFocus.length; lf++) {
+            if (allFocus[lf] === active) continue;
+            var lfRect = allFocus[lf].getBoundingClientRect();
+            var lfCy = lfRect.top + lfRect.height / 2;
+            if (Math.abs(lfCy - actCy) < 200 && lfRect.left < actRect.left) {
+              var lfDist = actRect.left - lfRect.left + Math.abs(lfCy - actCy);
+              if (lfDist < bestLeftDist) {
+                bestLeftDist = lfDist;
+                bestLeft = allFocus[lf];
               }
             }
-            if (bestLeft) next = bestLeft;
           }
+          next = bestLeft;
         }
+        if (!next) next = findNext(active, key);
         if (next) {
           var target = getFocusTarget(next);
           target.focus();
