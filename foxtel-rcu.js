@@ -116,6 +116,11 @@
           deduped.push(el2);
           continue;
         }
+        // Never dedup category title links
+        if (el2.classList && el2.classList.contains('category-title')) {
+          deduped.push(el2);
+          continue;
+        }
         var href = el2.href;
         var r2 = el2.getBoundingClientRect();
         var cy2 = r2.top + r2.height / 2;
