@@ -75,16 +75,47 @@
           }
         }
       }
-      // CR1: Skip text-content slides — keep only image slides for navigation
+      // CR1: Skip text-content slides and non-essential UI elements
       var filtered = [];
       for (var k = 0; k < out.length; k++) {
-        if (out[k].classList && out[k].classList.contains('columns--card')) continue;
-        filtered.push(out[k]);
+        var fe = out[k];
+        var feCls = fe.className ? fe.className.toLowerCase() : '';
+        var feTag = fe.tagName;
+
+        // Skip text cards below thumbnails
+        if (fe.classList && fe.classList.contains('columns--card')) continue;
+        // Skip if inside a columns--card container
+        if (fe.closest && fe.closest('.columns--card')) continue;
+
+        // Skip calendar and share buttons (keep favourites)
+        var feLabel = (fe.getAttribute('aria-label') || '').toLowerCase();
+        var feTitle = (fe.getAttribute('title') || '').toLowerCase();
+        var feText = (fe.textContent || '').trim().toLowerCase();
+        if (feLabel.indexOf('share') !== -1 || feTitle.indexOf('share') !== -1 ||
+            feCls.indexOf('share') !== -1 || feText === 'share') continue;
+        if (feLabel.indexOf('calendar') !== -1 || feTitle.indexOf('calendar') !== -1 ||
+            feCls.indexOf('calendar') !== -1 || feText === 'calendar' ||
+            feText === 'add to calendar') continue;
+
+        // Skip category heading links (duplicated by "See All")
+        // These are <a> tags inside elements with class containing "category-title"
+        // or "section-title", or <h2>/<h3> heading links
+        if (feTag === 'A' && fe.closest) {
+          var headingParent = fe.closest('[class*="category-title"], [class*="section-title"], h2, h3');
+          if (headingParent) {
+            // But don't skip "See All" links inside these
+            var headText = feText;
+            if (headText !== 'see all' && headText !== 'view all') continue;
+          }
+        }
+
+        filtered.push(fe);
       }
       out = filtered;
 
       // De-duplicate <a> elements with same href near each other (slider cards
-      // render image + text as separate links to the same URL)
+      // render image + text as separate links to the same URL).
+      // Threshold 150px to catch image+text pairs in tall carousel rows.
       var deduped = [];
       var seen = {};
       for (var j = 0; j < out.length; j++) {
@@ -105,7 +136,7 @@
         var area2 = r2.width * r2.height;
         if (seen[href]) {
           var prev = seen[href];
-          if (Math.abs(prev.cy - cy2) < 50) {
+          if (Math.abs(prev.cy - cy2) < 150) {
             if (area2 > prev.area) {
               deduped[prev.index] = el2;
               seen[href] = { cy: cy2, area: area2, index: prev.index };
@@ -523,23 +554,44 @@
       _volTimer = setTimeout(function() { el.style.display = 'none'; }, 1500);
     }
 
-    // --- Fullscreen helpers ---
-    function enterFullscreen(el) {
-      if (el.requestFullscreen) {
-        el.requestFullscreen().catch(function() {});
-      } else if (el.webkitRequestFullscreen) {
-        el.webkitRequestFullscreen();
-      }
+    // --- CSS Fullscreen ---
+    // The Fullscreen API requires a user gesture and fails in setTimeout
+    // on SBB Chromium 105. CSS fullscreen works everywhere: we set
+    // position:fixed + 100vw/100vh on the <video> and hide page chrome.
+    var _cssFullscreen = false;
+
+    function enterFullscreen(vid) {
+      if (_cssFullscreen) return;
+      _cssFullscreen = true;
+      vid.classList.add('rcu-fullscreen');
+      document.body.classList.add('rcu-fullscreen-active');
+      // Also try native fullscreen (best UX when it works)
+      try {
+        if (vid.requestFullscreen) {
+          vid.requestFullscreen().catch(function() {});
+        } else if (vid.webkitRequestFullscreen) {
+          vid.webkitRequestFullscreen();
+        }
+      } catch (ex) {}
     }
 
     function exitFullscreen() {
+      if (!_cssFullscreen && !document.fullscreenElement && !document.webkitFullscreenElement) return;
+      _cssFullscreen = false;
+      var vid = document.querySelector('.rcu-fullscreen');
+      if (vid) vid.classList.remove('rcu-fullscreen');
+      document.body.classList.remove('rcu-fullscreen-active');
+      // Also exit native fullscreen if active
       if (document.fullscreenElement || document.webkitFullscreenElement) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(function() {});
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
-        }
+        try {
+          if (document.exitFullscreen) document.exitFullscreen().catch(function() {});
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        } catch (ex) {}
       }
+    }
+
+    function isInFullscreen() {
+      return _cssFullscreen || !!document.fullscreenElement || !!document.webkitFullscreenElement;
     }
 
     // --- HLS Fallback for SBB ---
@@ -718,20 +770,24 @@
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
           key === 'ArrowLeft' || key === 'ArrowRight') {
 
-        // CR4: In fullscreen, Up/Down arrows control volume
-        if (document.fullscreenElement || document.webkitFullscreenElement) {
-          var fsVid = document.querySelector('video');
-          if (fsVid && (key === 'ArrowUp' || key === 'ArrowDown')) {
-            if (key === 'ArrowUp') {
-              fsVid.volume = Math.min(1, Math.round((fsVid.volume + 0.1) * 10) / 10);
-              fsVid.muted = false;
-            } else {
-              fsVid.volume = Math.max(0, Math.round((fsVid.volume - 0.1) * 10) / 10);
-            }
-            showVolumeIndicator(fsVid.volume);
-            e.preventDefault();
-            return;
+        // CR4: Volume control with Up/Down arrows.
+        // Active in fullscreen OR when video/video-player is focused.
+        var volVid = document.querySelector('video');
+        var volFocused = document.activeElement;
+        var volActive = (key === 'ArrowUp' || key === 'ArrowDown') && volVid;
+        var onVideoElement = volFocused && (volFocused.tagName === 'VIDEO' ||
+            volFocused.tagName === 'VIDEO-PLAYER' ||
+            (volFocused.closest && volFocused.closest('video-player')));
+        if (volActive && (isInFullscreen() || onVideoElement)) {
+          if (key === 'ArrowUp') {
+            volVid.volume = Math.min(1, Math.round((volVid.volume + 0.1) * 10) / 10);
+            volVid.muted = false;
+          } else {
+            volVid.volume = Math.max(0, Math.round((volVid.volume - 0.1) * 10) / 10);
           }
+          showVolumeIndicator(volVid.volume);
+          e.preventDefault();
+          return;
         }
 
         // Check if we're inside a text input
@@ -788,60 +844,67 @@
 
         // Swiper carousel support
         var swiper = active.closest && active.closest('.swiper');
-        var atSwiperEnd = false;
         if (swiper && swiper.swiper) {
           if (key === 'ArrowLeft') swiper.swiper.slidePrev();
-          if (key === 'ArrowRight') {
-            if (swiper.swiper.isEnd) {
-              atSwiperEnd = true;
-            } else {
-              swiper.swiper.slideNext();
-            }
+          if (key === 'ArrowRight' && !swiper.swiper.isEnd) {
+            swiper.swiper.slideNext();
           }
         }
 
-        // At end of carousel + ArrowRight: go to "See All" for this section
-        var next = null;
-        if (atSwiperEnd && key === 'ArrowRight') {
+        // Standard spatial navigation first
+        var next = findNext(active, key);
+
+        // CR2: If ArrowRight found nothing, look for "See All" link in this row.
+        // Search ALL <a> tags by text content — more robust than class selectors
+        // which may vary across UScreen versions.
+        if (!next && key === 'ArrowRight') {
           var activeRect = active.getBoundingClientRect();
           var activeCy = activeRect.top + activeRect.height / 2;
-          var seeAlls = document.querySelectorAll('.category-see-all a');
+          var allLinks = document.querySelectorAll('a[href]');
           var bestSA = null;
           var bestSADist = Infinity;
-          for (var sa = 0; sa < seeAlls.length; sa++) {
-            var saRect = seeAlls[sa].getBoundingClientRect();
+          for (var sa = 0; sa < allLinks.length; sa++) {
+            var saText = (allLinks[sa].textContent || '').trim();
+            if (saText !== 'See All' && saText !== 'See all' && saText !== 'View All') continue;
+            var saRect = allLinks[sa].getBoundingClientRect();
             if (saRect.width === 0) continue;
             var saCy = saRect.top + saRect.height / 2;
             var saDistY = Math.abs(saCy - activeCy);
-            if (saDistY < 200 && saDistY < bestSADist) {
-              bestSADist = saDistY;
-              bestSA = seeAlls[sa];
+            // Must be in the same row (within 250px) and to the right
+            if (saDistY < 250 && saRect.left > activeRect.left) {
+              if (saDistY < bestSADist) {
+                bestSADist = saDistY;
+                bestSA = allLinks[sa];
+              }
             }
           }
           next = bestSA;
         }
-        // ArrowLeft from "See All": go back to nearest thumbnail to the left
-        if (!next && key === 'ArrowLeft' && active.closest && active.closest('.category-see-all')) {
-          var allFocus = getVisibleFocusables();
-          var actRect = active.getBoundingClientRect();
-          var actCy = actRect.top + actRect.height / 2;
-          var bestLeft = null;
-          var bestLeftDist = Infinity;
-          for (var lf = 0; lf < allFocus.length; lf++) {
-            if (allFocus[lf] === active) continue;
-            var lfRect = allFocus[lf].getBoundingClientRect();
-            var lfCy = lfRect.top + lfRect.height / 2;
-            if (Math.abs(lfCy - actCy) < 200 && lfRect.left < actRect.left) {
-              var lfDist = actRect.left - lfRect.left + Math.abs(lfCy - actCy);
-              if (lfDist < bestLeftDist) {
-                bestLeftDist = lfDist;
-                bestLeft = allFocus[lf];
+
+        // ArrowLeft from a "See All" link: go back to nearest thumbnail
+        if (!next && key === 'ArrowLeft') {
+          var activeText = (active.textContent || '').trim();
+          if (activeText === 'See All' || activeText === 'See all' || activeText === 'View All') {
+            var allFocus = getVisibleFocusables();
+            var actRect = active.getBoundingClientRect();
+            var actCy = actRect.top + actRect.height / 2;
+            var bestLeft = null;
+            var bestLeftDist = Infinity;
+            for (var lf = 0; lf < allFocus.length; lf++) {
+              if (allFocus[lf] === active) continue;
+              var lfRect = allFocus[lf].getBoundingClientRect();
+              var lfCy = lfRect.top + lfRect.height / 2;
+              if (Math.abs(lfCy - actCy) < 250 && lfRect.left < actRect.left) {
+                var lfDist = actRect.left - lfRect.left + Math.abs(lfCy - actCy);
+                if (lfDist < bestLeftDist) {
+                  bestLeftDist = lfDist;
+                  bestLeft = allFocus[lf];
+                }
               }
             }
+            next = bestLeft;
           }
-          next = bestLeft;
         }
-        if (!next) next = findNext(active, key);
         // If ArrowUp found nothing and there's a video-player, focus it
         if (!next && key === 'ArrowUp') {
           var vpEl = document.querySelector('video-player');
@@ -948,7 +1011,7 @@
       // Back / Last (Escape)
       if (key === 'Escape') {
         // If in fullscreen, exit fullscreen and pause video
-        if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (isInFullscreen()) {
           var fsVideo = document.querySelector('video');
           if (fsVideo && !fsVideo.paused) fsVideo.pause();
           exitFullscreen();
@@ -1068,7 +1131,7 @@
         return;
       }
       // Let browser handle Escape keyup in fullscreen (needed to exit fullscreen)
-      if (e.key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement)) {
+      if (e.key === 'Escape' && isInFullscreen()) {
         return;
       }
       var nav = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Escape'];
