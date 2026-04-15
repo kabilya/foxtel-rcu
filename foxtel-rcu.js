@@ -770,24 +770,21 @@
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
           key === 'ArrowLeft' || key === 'ArrowRight') {
 
-        // CR4: Volume control with Up/Down arrows.
-        // Active in fullscreen OR when video/video-player is focused.
-        var volVid = document.querySelector('video');
-        var volFocused = document.activeElement;
-        var volActive = (key === 'ArrowUp' || key === 'ArrowDown') && volVid;
-        var onVideoElement = volFocused && (volFocused.tagName === 'VIDEO' ||
-            volFocused.tagName === 'VIDEO-PLAYER' ||
-            (volFocused.closest && volFocused.closest('video-player')));
-        if (volActive && (isInFullscreen() || onVideoElement)) {
-          if (key === 'ArrowUp') {
-            volVid.volume = Math.min(1, Math.round((volVid.volume + 0.1) * 10) / 10);
-            volVid.muted = false;
-          } else {
-            volVid.volume = Math.max(0, Math.round((volVid.volume - 0.1) * 10) / 10);
+        // CR4: In fullscreen only, Up/Down arrows control volume.
+        // Outside fullscreen, Up/Down navigate normally even on video-player.
+        if (isInFullscreen() && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          var volVid = document.querySelector('video');
+          if (volVid) {
+            if (key === 'ArrowUp') {
+              volVid.volume = Math.min(1, Math.round((volVid.volume + 0.1) * 10) / 10);
+              volVid.muted = false;
+            } else {
+              volVid.volume = Math.max(0, Math.round((volVid.volume - 0.1) * 10) / 10);
+            }
+            showVolumeIndicator(volVid.volume);
+            e.preventDefault();
+            return;
           }
-          showVolumeIndicator(volVid.volume);
-          e.preventDefault();
-          return;
         }
 
         // Check if we're inside a text input
