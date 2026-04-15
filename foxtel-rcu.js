@@ -140,9 +140,6 @@
       }
       out = deduped;
 
-      // DEBUG: log category-title presence
-      var catTitles = out.filter(function(e) { return e.classList && e.classList.contains('category-title'); });
-      console.log('RCU focusables:', out.length, 'category-titles:', catTitles.length, catTitles.map(function(e) { return e.textContent.trim(); }));
       return out;
     }
 
@@ -181,19 +178,16 @@
         } else {
           main = Math.abs(dx); cross = Math.abs(dy);
         }
-        var dist = main + cross * 3;
-
-        // DEBUG: log category-title candidates
-        if (all[i].classList && all[i].classList.contains('category-title')) {
-          console.log('RCU findNext', direction, 'cat-title:', all[i].textContent.trim(), 'dist:', Math.round(dist), 'main:', Math.round(main), 'cross:', Math.round(cross), 'bestDist:', Math.round(bestDist));
-        }
+        // Category titles span the full row width — reduce cross-axis
+        // penalty so ArrowUp/Down can reach them from any thumbnail position
+        var crossWeight = (all[i].classList && all[i].classList.contains('category-title')) ? 0.5 : 3;
+        var dist = main + cross * crossWeight;
 
         if (dist < bestDist) {
           bestDist = dist;
           best = all[i];
         }
       }
-      if (best) console.log('RCU findNext winner:', best.tagName, best.className, best.textContent.trim().substring(0, 30), 'dist:', Math.round(bestDist));
       return best;
     }
 
