@@ -526,6 +526,7 @@
 
     // --- Volume indicator ---
     var _volTimer = null;
+    var _trackedVolume = 1; // fallback level when no video is on page
     function showVolumeIndicator(level) {
       var el = document.getElementById('sbb-vol-indicator');
       if (!el) {
@@ -1008,6 +1009,31 @@
         }
       }
 
+      // Volume keys — always show indicator, even without a video on page
+      if (key === 'VolumeUp' || key === 'AudioVolumeUp' ||
+          key === 'VolumeDown' || key === 'AudioVolumeDown') {
+        var volVideo = document.querySelector('video');
+        if (volVideo) {
+          if (key === 'VolumeUp' || key === 'AudioVolumeUp') {
+            volVideo.volume = Math.min(1, Math.round((volVideo.volume + 0.1) * 10) / 10);
+            volVideo.muted = false;
+          } else {
+            volVideo.volume = Math.max(0, Math.round((volVideo.volume - 0.1) * 10) / 10);
+          }
+          showVolumeIndicator(volVideo.volume);
+        } else {
+          // No video — show indicator with tracked level so user gets feedback
+          if (key === 'VolumeUp' || key === 'AudioVolumeUp') {
+            _trackedVolume = Math.min(1, Math.round((_trackedVolume + 0.1) * 10) / 10);
+          } else {
+            _trackedVolume = Math.max(0, Math.round((_trackedVolume - 0.1) * 10) / 10);
+          }
+          showVolumeIndicator(_trackedVolume);
+        }
+        e.preventDefault();
+        return;
+      }
+
       // Media keys for video playback
       var video = document.querySelector('video');
       if (video) {
@@ -1041,15 +1067,6 @@
             e.preventDefault(); break;
           case 'MediaFastForward':
             video.currentTime = Math.min(video.duration, video.currentTime + 10);
-            e.preventDefault(); break;
-          case 'VolumeUp':
-            video.volume = Math.min(1, Math.round((video.volume + 0.1) * 10) / 10);
-            video.muted = false;
-            showVolumeIndicator(video.volume);
-            e.preventDefault(); break;
-          case 'VolumeDown':
-            video.volume = Math.max(0, Math.round((video.volume - 0.1) * 10) / 10);
-            showVolumeIndicator(video.volume);
             e.preventDefault(); break;
         }
       }
