@@ -82,10 +82,9 @@
         var feCls = fe.className ? fe.className.toLowerCase() : '';
         var feTag = fe.tagName;
 
-        // Skip text cards below thumbnails
-        if (fe.classList && fe.classList.contains('columns--card')) continue;
-        // Skip if inside a columns--card container
-        if (fe.closest && fe.closest('.columns--card')) continue;
+        // Skip text cards and video title links below thumbnails
+        if (fe.classList && (fe.classList.contains('columns--card') || fe.classList.contains('card-title'))) continue;
+        if (fe.closest && (fe.closest('.columns--card') || fe.closest('.card-title'))) continue;
 
         // Skip calendar and share buttons (keep favourites)
         var feLabel = (fe.getAttribute('aria-label') || '').toLowerCase();
@@ -841,32 +840,31 @@
         }
 
         // DOM-based category navigation — works regardless of screen size.
-        // Pair category-titles with swipers by document order: the Nth
-        // .category-title corresponds to the Nth .swiper on the page.
+        // Uses compareDocumentPosition to find the nearest category-title
+        // or swiper relative to the active element in DOM order.
         var next = null;
         var allCatTitles = document.querySelectorAll('.category-title');
         var allSwipers = document.querySelectorAll('.swiper');
 
-        if (key === 'ArrowUp' && swiper) {
-          // From thumbnail inside a swiper → find which swiper index this is
-          for (var si = 0; si < allSwipers.length; si++) {
-            if (allSwipers[si] === swiper || allSwipers[si].contains(active)) {
-              if (allCatTitles[si]) next = allCatTitles[si];
-              break;
-            }
+        if (key === 'ArrowUp') {
+          // Find the last .category-title that PRECEDES active in DOM order
+          var bestCat = null;
+          for (var ci = 0; ci < allCatTitles.length; ci++) {
+            // DOCUMENT_POSITION_FOLLOWING (4) = catTitle comes before active
+            if (active.compareDocumentPosition(allCatTitles[ci]) & 2) break;
+            bestCat = allCatTitles[ci];
           }
+          if (bestCat && bestCat !== active) next = bestCat;
         }
         if (key === 'ArrowDown' && active.classList && active.classList.contains('category-title')) {
-          // From category-title → find which title index this is → its swiper
-          for (var ci = 0; ci < allCatTitles.length; ci++) {
-            if (allCatTitles[ci] === active) {
-              if (allSwipers[ci]) {
-                // Find first visible thumbnail in this swiper
-                var thumbs = allSwipers[ci].querySelectorAll('a[href]');
-                for (var t = 0; t < thumbs.length; t++) {
-                  var tr = thumbs[t].getBoundingClientRect();
-                  if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
-                }
+          // Find the first .swiper that FOLLOWS active in DOM order
+          for (var si = 0; si < allSwipers.length; si++) {
+            // DOCUMENT_POSITION_FOLLOWING (4) = swiper comes after active
+            if (active.compareDocumentPosition(allSwipers[si]) & 4) {
+              var thumbs = allSwipers[si].querySelectorAll('a[href]');
+              for (var t = 0; t < thumbs.length; t++) {
+                var tr = thumbs[t].getBoundingClientRect();
+                if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
               }
               break;
             }
