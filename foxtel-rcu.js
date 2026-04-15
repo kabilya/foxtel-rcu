@@ -839,39 +839,74 @@
           }
         }
 
-        // DOM-based category navigation — works regardless of screen size.
-        // Uses compareDocumentPosition to find the nearest category-title
-        // or swiper relative to the active element in DOM order.
+        // --- Catalog vertical navigation ---
+        // Two navigation modes:
+        //   Left/Right = move within a <ds-swiper> carousel (between thumbnails)
+        //   Up/Down    = move between sections (category-title ↔ thumbnails)
+        //
+        // The focusable list is in DOM order:
+        //   [nav..., cat-title-1, thumb, thumb, cat-title-2, thumb, ...]
+        //
+        // Rules for Up/Down:
+        //   Down from cat-title   → first thumbnail in its section
+        //   Down from thumbnail   → next category-title (skip sibling thumbs)
+        //   Up from thumbnail     → preceding category-title
+        //   Up from cat-title     → last thumbnail in previous section
         var next = null;
-        var allCatTitles = document.querySelectorAll('.category-title');
-        var allSwipers = document.querySelectorAll('.swiper');
+        var isCatTitle = active.classList && active.classList.contains('category-title');
+        var hasCatalog = document.querySelector('.category-title');
 
-        if (key === 'ArrowUp') {
-          // Find the last .category-title that PRECEDES active in DOM order
-          var bestCat = null;
-          for (var ci = 0; ci < allCatTitles.length; ci++) {
-            // DOCUMENT_POSITION_FOLLOWING (4) = catTitle comes before active
-            if (active.compareDocumentPosition(allCatTitles[ci]) & 2) break;
-            bestCat = allCatTitles[ci];
+        if (hasCatalog && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          var focList = getVisibleFocusables();
+          var selfIdx = -1;
+          for (var fi = 0; fi < focList.length; fi++) {
+            if (focList[fi] === active) { selfIdx = fi; break; }
           }
-          if (bestCat && bestCat !== active) next = bestCat;
-        }
-        if (key === 'ArrowDown' && active.classList && active.classList.contains('category-title')) {
-          // Find the first .swiper that FOLLOWS active in DOM order
-          for (var si = 0; si < allSwipers.length; si++) {
-            // DOCUMENT_POSITION_FOLLOWING (4) = swiper comes after active
-            if (active.compareDocumentPosition(allSwipers[si]) & 4) {
-              var thumbs = allSwipers[si].querySelectorAll('a[href]');
-              for (var t = 0; t < thumbs.length; t++) {
-                var tr = thumbs[t].getBoundingClientRect();
-                if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
+
+          if (selfIdx >= 0) {
+            if (key === 'ArrowDown' && isCatTitle) {
+              // Cat-title → first thumbnail below (next non-title)
+              for (var fd = selfIdx + 1; fd < focList.length; fd++) {
+                if (!(focList[fd].classList && focList[fd].classList.contains('category-title'))) {
+                  next = focList[fd]; break;
+                }
               }
-              break;
+            } else if (key === 'ArrowDown' && !isCatTitle) {
+              // Thumbnail → next category-title (skip sibling thumbnails)
+              for (var fd2 = selfIdx + 1; fd2 < focList.length; fd2++) {
+                if (focList[fd2].classList && focList[fd2].classList.contains('category-title')) {
+                  next = focList[fd2]; break;
+                }
+              }
+            } else if (key === 'ArrowUp' && !isCatTitle) {
+              // Thumbnail → preceding category-title
+              for (var fu = selfIdx - 1; fu >= 0; fu--) {
+                if (focList[fu].classList && focList[fu].classList.contains('category-title')) {
+                  next = focList[fu]; break;
+                }
+              }
+            } else if (key === 'ArrowUp' && isCatTitle) {
+              // Cat-title → last thumbnail of previous section
+              var prevCatIdx = -1;
+              for (var fu2 = selfIdx - 1; fu2 >= 0; fu2--) {
+                if (focList[fu2].classList && focList[fu2].classList.contains('category-title')) {
+                  prevCatIdx = fu2; break;
+                }
+              }
+              if (prevCatIdx >= 0) {
+                // Last non-title between previous cat and current cat
+                for (var ft = selfIdx - 1; ft > prevCatIdx; ft--) {
+                  if (!(focList[ft].classList && focList[ft].classList.contains('category-title'))) {
+                    next = focList[ft]; break;
+                  }
+                }
+                if (!next) next = focList[prevCatIdx]; // fallback: prev cat-title
+              }
             }
           }
         }
 
-        // Fall back to standard spatial navigation
+        // Fall back to spatial navigation (non-catalog pages, or edges)
         if (!next) next = findNext(active, key);
 
         // If ArrowUp found nothing and there's a video-player, focus it
