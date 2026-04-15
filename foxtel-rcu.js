@@ -97,17 +97,9 @@
             feCls.indexOf('calendar') !== -1 || feText === 'calendar' ||
             feText === 'add to calendar') continue;
 
-        // Skip category heading links (duplicated by "See All")
-        // These are <a> tags inside elements with class containing "category-title"
-        // or "section-title", or <h2>/<h3> heading links
-        if (feTag === 'A' && fe.closest) {
-          var headingParent = fe.closest('[class*="category-title"], [class*="section-title"], h2, h3');
-          if (headingParent) {
-            // But don't skip "See All" links inside these
-            var headText = feText;
-            if (headText !== 'see all' && headText !== 'view all') continue;
-          }
-        }
+        // Skip "See All" links — category titles (.category-title) serve the
+        // same purpose and are easier to reach via ArrowUp from thumbnails
+        if (feTag === 'A' && (feText === 'see all' || feText === 'view all')) continue;
 
         filtered.push(fe);
       }
@@ -121,12 +113,6 @@
       for (var j = 0; j < out.length; j++) {
         var el2 = out[j];
         if (el2.tagName !== 'A' || !el2.href) {
-          deduped.push(el2);
-          continue;
-        }
-        // CR2: Never dedup navigation links like "See All"
-        var linkText = el2.textContent ? el2.textContent.trim() : '';
-        if (linkText === 'See All' || linkText === 'See all' || linkText === 'View All') {
           deduped.push(el2);
           continue;
         }
@@ -851,57 +837,6 @@
         // Standard spatial navigation first
         var next = findNext(active, key);
 
-        // CR2: If ArrowRight found nothing, look for "See All" link in this row.
-        // Search ALL <a> tags by text content — more robust than class selectors
-        // which may vary across UScreen versions.
-        if (!next && key === 'ArrowRight') {
-          var activeRect = active.getBoundingClientRect();
-          var activeCy = activeRect.top + activeRect.height / 2;
-          var allLinks = document.querySelectorAll('a[href]');
-          var bestSA = null;
-          var bestSADist = Infinity;
-          for (var sa = 0; sa < allLinks.length; sa++) {
-            var saText = (allLinks[sa].textContent || '').trim();
-            if (saText !== 'See All' && saText !== 'See all' && saText !== 'View All') continue;
-            var saRect = allLinks[sa].getBoundingClientRect();
-            if (saRect.width === 0) continue;
-            var saCy = saRect.top + saRect.height / 2;
-            var saDistY = Math.abs(saCy - activeCy);
-            // Must be in the same row (within 250px) and to the right
-            if (saDistY < 250 && saRect.left > activeRect.left) {
-              if (saDistY < bestSADist) {
-                bestSADist = saDistY;
-                bestSA = allLinks[sa];
-              }
-            }
-          }
-          next = bestSA;
-        }
-
-        // ArrowLeft from a "See All" link: go back to nearest thumbnail
-        if (!next && key === 'ArrowLeft') {
-          var activeText = (active.textContent || '').trim();
-          if (activeText === 'See All' || activeText === 'See all' || activeText === 'View All') {
-            var allFocus = getVisibleFocusables();
-            var actRect = active.getBoundingClientRect();
-            var actCy = actRect.top + actRect.height / 2;
-            var bestLeft = null;
-            var bestLeftDist = Infinity;
-            for (var lf = 0; lf < allFocus.length; lf++) {
-              if (allFocus[lf] === active) continue;
-              var lfRect = allFocus[lf].getBoundingClientRect();
-              var lfCy = lfRect.top + lfRect.height / 2;
-              if (Math.abs(lfCy - actCy) < 250 && lfRect.left < actRect.left) {
-                var lfDist = actRect.left - lfRect.left + Math.abs(lfCy - actCy);
-                if (lfDist < bestLeftDist) {
-                  bestLeftDist = lfDist;
-                  bestLeft = allFocus[lf];
-                }
-              }
-            }
-            next = bestLeft;
-          }
-        }
         // If ArrowUp found nothing and there's a video-player, focus it
         if (!next && key === 'ArrowUp') {
           var vpEl = document.querySelector('video-player');
