@@ -841,34 +841,34 @@
         }
 
         // DOM-based category navigation — works regardless of screen size.
-        // ArrowUp from a carousel thumbnail → find the category-title for this section.
-        // ArrowDown from a category-title → find the first thumbnail in its section.
+        // Pair category-titles with swipers by document order: the Nth
+        // .category-title corresponds to the Nth .swiper on the page.
         var next = null;
-        if (key === 'ArrowUp' && active.closest) {
-          // Walk up from thumbnail to its section container, then find its category-title
-          var section = active.closest('[class*="category"]') || (swiper && swiper.parentElement);
-          while (section && !section.querySelector('.category-title')) {
-            section = section.parentElement;
-          }
-          if (section) {
-            var catTitle = section.querySelector('.category-title');
-            if (catTitle && catTitle !== active) next = catTitle;
+        var allCatTitles = document.querySelectorAll('.category-title');
+        var allSwipers = document.querySelectorAll('.swiper');
+
+        if (key === 'ArrowUp' && swiper) {
+          // From thumbnail inside a swiper → find which swiper index this is
+          for (var si = 0; si < allSwipers.length; si++) {
+            if (allSwipers[si] === swiper || allSwipers[si].contains(active)) {
+              if (allCatTitles[si]) next = allCatTitles[si];
+              break;
+            }
           }
         }
         if (key === 'ArrowDown' && active.classList && active.classList.contains('category-title')) {
-          // Find the section this title belongs to, then its first focusable thumbnail
-          var section2 = active.parentElement;
-          while (section2 && !section2.querySelector('.swiper')) {
-            section2 = section2.parentElement;
-          }
-          if (section2) {
-            var swiperEl = section2.querySelector('.swiper');
-            if (swiperEl) {
-              var thumbs = swiperEl.querySelectorAll('a[href]');
-              for (var t = 0; t < thumbs.length; t++) {
-                var tr = thumbs[t].getBoundingClientRect();
-                if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
+          // From category-title → find which title index this is → its swiper
+          for (var ci = 0; ci < allCatTitles.length; ci++) {
+            if (allCatTitles[ci] === active) {
+              if (allSwipers[ci]) {
+                // Find first visible thumbnail in this swiper
+                var thumbs = allSwipers[ci].querySelectorAll('a[href]');
+                for (var t = 0; t < thumbs.length; t++) {
+                  var tr = thumbs[t].getBoundingClientRect();
+                  if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
+                }
               }
+              break;
             }
           }
         }
