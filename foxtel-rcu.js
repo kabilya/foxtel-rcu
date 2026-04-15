@@ -886,21 +886,11 @@
                 }
               }
             } else if (key === 'ArrowUp' && isCatTitle) {
-              // Cat-title → last thumbnail of previous section
-              var prevCatIdx = -1;
+              // Cat-title → previous category-title (quick title browsing)
               for (var fu2 = selfIdx - 1; fu2 >= 0; fu2--) {
                 if (focList[fu2].classList && focList[fu2].classList.contains('category-title')) {
-                  prevCatIdx = fu2; break;
+                  next = focList[fu2]; break;
                 }
-              }
-              if (prevCatIdx >= 0) {
-                // Last non-title between previous cat and current cat
-                for (var ft = selfIdx - 1; ft > prevCatIdx; ft--) {
-                  if (!(focList[ft].classList && focList[ft].classList.contains('category-title'))) {
-                    next = focList[ft]; break;
-                  }
-                }
-                if (!next) next = focList[prevCatIdx]; // fallback: prev cat-title
               }
             }
           }
