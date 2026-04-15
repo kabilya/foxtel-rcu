@@ -178,10 +178,7 @@
         } else {
           main = Math.abs(dx); cross = Math.abs(dy);
         }
-        // Category titles span the full row width — reduce cross-axis
-        // penalty so ArrowUp/Down can reach them from any thumbnail position
-        var crossWeight = (all[i].classList && all[i].classList.contains('category-title')) ? 0.5 : 3;
-        var dist = main + cross * crossWeight;
+        var dist = main + cross * 3;
 
         if (dist < bestDist) {
           bestDist = dist;
@@ -843,8 +840,41 @@
           }
         }
 
-        // Standard spatial navigation first
-        var next = findNext(active, key);
+        // DOM-based category navigation — works regardless of screen size.
+        // ArrowUp from a carousel thumbnail → find the category-title for this section.
+        // ArrowDown from a category-title → find the first thumbnail in its section.
+        var next = null;
+        if (key === 'ArrowUp' && active.closest) {
+          // Walk up from thumbnail to its section container, then find its category-title
+          var section = active.closest('[class*="category"]') || (swiper && swiper.parentElement);
+          while (section && !section.querySelector('.category-title')) {
+            section = section.parentElement;
+          }
+          if (section) {
+            var catTitle = section.querySelector('.category-title');
+            if (catTitle && catTitle !== active) next = catTitle;
+          }
+        }
+        if (key === 'ArrowDown' && active.classList && active.classList.contains('category-title')) {
+          // Find the section this title belongs to, then its first focusable thumbnail
+          var section2 = active.parentElement;
+          while (section2 && !section2.querySelector('.swiper')) {
+            section2 = section2.parentElement;
+          }
+          if (section2) {
+            var swiperEl = section2.querySelector('.swiper');
+            if (swiperEl) {
+              var thumbs = swiperEl.querySelectorAll('a[href]');
+              for (var t = 0; t < thumbs.length; t++) {
+                var tr = thumbs[t].getBoundingClientRect();
+                if (tr.width > 0 && tr.height > 0) { next = thumbs[t]; break; }
+              }
+            }
+          }
+        }
+
+        // Fall back to standard spatial navigation
+        if (!next) next = findNext(active, key);
 
         // If ArrowUp found nothing and there's a video-player, focus it
         if (!next && key === 'ArrowUp') {
