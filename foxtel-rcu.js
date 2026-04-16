@@ -699,6 +699,20 @@
           sel.textContent = f.options[f.selectedIdx].text;
           row.appendChild(sel);
         }
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', (function(idx) {
+          return function() {
+            _filterLeftIdx = idx;
+            _filterPanel = 'left';
+            var cf = _filterFilters[idx];
+            if (cf._isApply)    { _filterApplyAll();      return; }
+            if (cf._isClearAll) { _filterClearAndClose(); return; }
+            _filterPanel = 'right';
+            _filterRightIdx = cf.selectedIdx >= 0 ? cf.selectedIdx : 0;
+            _filterRenderLeft();
+            _filterRenderRight();
+          };
+        })(i));
         lp.appendChild(row);
       }
       if (lp.children[_filterLeftIdx]) {
@@ -756,6 +770,19 @@
         var txt = document.createElement('span');
         txt.textContent = opt.text;
         row.appendChild(txt);
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', (function(optIdx) {
+          return function() {
+            var rf = _filterFilters[_filterLeftIdx];
+            if (rf && !rf._isApply && !rf._isClearAll) {
+              rf.selectedIdx = optIdx;
+              _filterPanel = 'left';
+              _filterLeftIdx = _filterFilters.length - 2; // jump to "Apply Filters"
+              _filterRenderLeft();
+              _filterRenderRight();
+            }
+          };
+        })(i));
         rp.appendChild(row);
       }
       // Scroll active option into view (+1 offset for header row)
@@ -865,11 +892,11 @@
         return;
       }
       if (key === 'Enter' && _filterPanel === 'right') {
-        // Mark option as selected locally — does NOT navigate yet.
-        // User presses "Apply Filters" when ready.
         var rf = _filterFilters[_filterLeftIdx];
         if (rf && !rf._isApply && !rf._isClearAll) {
           rf.selectedIdx = _filterRightIdx;
+          _filterPanel = 'left';
+          _filterLeftIdx = _filterFilters.length - 2; // jump to "Apply Filters"
           _filterRenderLeft();
           _filterRenderRight();
         }
