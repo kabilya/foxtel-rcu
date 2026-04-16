@@ -942,6 +942,22 @@
                 }
               }
             }
+
+            // Pressing Down from above the catalog (nav bar, filter panel):
+            // use DOM order to find the next focusable element below.
+            // Spatial scoring (cross * 3) causes elements with large horizontal
+            // offsets (like a centred Filters bar) to lose to left-aligned
+            // category-titles, so we walk the DOM-ordered list instead.
+            if (!next && key === 'ArrowDown' && firstCatIdx > 0 && selfIdx < firstCatIdx) {
+              var actBottom = active.getBoundingClientRect().bottom;
+              for (var dci = selfIdx + 1; dci < focList.length; dci++) {
+                var dciRect = focList[dci].getBoundingClientRect();
+                if (dciRect.top >= actBottom - 5) {
+                  next = focList[dci];
+                  break;
+                }
+              }
+            }
           }
         }
 
