@@ -943,18 +943,32 @@
               }
             }
 
-            // Pressing Down from above the catalog (nav bar, filter panel):
-            // use DOM order to find the next focusable element below.
-            // Spatial scoring (cross * 3) causes elements with large horizontal
-            // offsets (like a centred Filters bar) to lose to left-aligned
-            // category-titles, so we walk the DOM-ordered list instead.
-            if (!next && key === 'ArrowDown' && firstCatIdx > 0 && selfIdx < firstCatIdx) {
-              var actBottom = active.getBoundingClientRect().bottom;
-              for (var dci = selfIdx + 1; dci < focList.length; dci++) {
-                var dciRect = focList[dci].getBoundingClientRect();
-                if (dciRect.top >= actBottom - 5) {
-                  next = focList[dci];
-                  break;
+            // Pressing Down or Right from above the catalog (nav bar, filter panel):
+            // use DOM order so spatial cross-penalty doesn't cause jumps to skip filters.
+            if (!next && (key === 'ArrowDown' || key === 'ArrowRight') &&
+                firstCatIdx > 0 && selfIdx < firstCatIdx) {
+              var actR = active.getBoundingClientRect();
+              if (key === 'ArrowRight') {
+                // Right: move to next element in DOM order within pre-catalog area
+                if (selfIdx + 1 < focList.length) {
+                  next = focList[selfIdx + 1];
+                }
+              } else {
+                // Down: first pass — find element strictly below active
+                for (var dci = selfIdx + 1; dci < focList.length; dci++) {
+                  var dciRect = focList[dci].getBoundingClientRect();
+                  if (dciRect.top >= actR.bottom - 5) {
+                    next = focList[dci]; break;
+                  }
+                }
+                // Second pass — if filter bar is horizontal (same row), accept same-row elements
+                if (!next) {
+                  for (var dci2 = selfIdx + 1; dci2 < focList.length; dci2++) {
+                    var dciRect2 = focList[dci2].getBoundingClientRect();
+                    if (dciRect2.top >= actR.top - 5) {
+                      next = focList[dci2]; break;
+                    }
+                  }
                 }
               }
             }
