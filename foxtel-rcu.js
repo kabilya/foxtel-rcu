@@ -229,6 +229,12 @@
       if (el.tagName === 'DS-BUTTON') {
         return el;
       }
+      // UScreen <ds-select>: shadowrootdelegatesfocus requires a tabindex
+      // on the host element before .focus() will work programmatically.
+      if (el.tagName === 'DS-SELECT') {
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+        return el;
+      }
       return el;
     }
 
