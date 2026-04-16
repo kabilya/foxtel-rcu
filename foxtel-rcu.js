@@ -53,6 +53,7 @@
       'video-play-button',
       'ds-button',
       'ds-input',
+      'ds-select',
       '[role="button"]:not([disabled])',
       '[role="switch"]',
       '[onclick]:not([disabled])'
@@ -839,6 +840,34 @@
           }
         }
 
+        // --- ds-select dropdown option navigation ---
+        // When user is inside an open dropdown, Up/Down moves between options.
+        // Options are dynamic (fetched at runtime) so we query them live.
+        if (active.tagName === 'DS-SELECT-OPTION' && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          var dsParent = active.closest('ds-select');
+          if (dsParent) {
+            var dsOpts = Array.prototype.slice.call(dsParent.querySelectorAll('ds-select-option'));
+            var dsVisOpts = [];
+            for (var oi = 0; oi < dsOpts.length; oi++) {
+              var oRect = dsOpts[oi].getBoundingClientRect();
+              if (oRect.width > 0 && oRect.height > 0) dsVisOpts.push(dsOpts[oi]);
+            }
+            if (dsVisOpts.length > 0) {
+              var curOptIdx = dsVisOpts.indexOf(active);
+              var tgtOptIdx;
+              if (key === 'ArrowDown') {
+                tgtOptIdx = curOptIdx < 0 ? 0 : Math.min(curOptIdx + 1, dsVisOpts.length - 1);
+              } else {
+                tgtOptIdx = curOptIdx <= 0 ? 0 : curOptIdx - 1;
+              }
+              dsVisOpts[tgtOptIdx].focus();
+              ensureVisible(dsVisOpts[tgtOptIdx]);
+              e.preventDefault();
+              return;
+            }
+          }
+        }
+
         // --- Catalog vertical navigation ---
         // Two navigation modes:
         //   Left/Right = move within a <ds-swiper> carousel (between thumbnails)
@@ -864,40 +893,51 @@
           }
 
           if (selfIdx >= 0) {
-            if (key === 'ArrowDown' && isCatTitle) {
-              // Cat-title → first thumbnail below (next non-title)
-              for (var fd = selfIdx + 1; fd < focList.length; fd++) {
-                if (!(focList[fd].classList && focList[fd].classList.contains('category-title'))) {
-                  next = focList[fd]; break;
-                }
+            // Only apply catalog rules when active element is at or after
+            // the first category-title (excludes nav bar, filter panel, etc.)
+            var firstCatIdx = -1;
+            for (var fci = 0; fci < focList.length; fci++) {
+              if (focList[fci].classList && focList[fci].classList.contains('category-title')) {
+                firstCatIdx = fci; break;
               }
-            } else if (key === 'ArrowDown' && !isCatTitle) {
-              // Thumbnail → next category-title (skip sibling thumbnails)
-              for (var fd2 = selfIdx + 1; fd2 < focList.length; fd2++) {
-                if (focList[fd2].classList && focList[fd2].classList.contains('category-title')) {
-                  next = focList[fd2]; break;
+            }
+
+            if (firstCatIdx >= 0 && selfIdx >= firstCatIdx) {
+              if (key === 'ArrowDown' && isCatTitle) {
+                // Cat-title → first thumbnail below (next non-title)
+                for (var fd = selfIdx + 1; fd < focList.length; fd++) {
+                  if (!(focList[fd].classList && focList[fd].classList.contains('category-title'))) {
+                    next = focList[fd]; break;
+                  }
                 }
-              }
-            } else if (key === 'ArrowUp' && !isCatTitle) {
-              // Thumbnail → preceding category-title
-              for (var fu = selfIdx - 1; fu >= 0; fu--) {
-                if (focList[fu].classList && focList[fu].classList.contains('category-title')) {
-                  next = focList[fu]; break;
+              } else if (key === 'ArrowDown' && !isCatTitle) {
+                // Thumbnail → next category-title (skip sibling thumbnails)
+                for (var fd2 = selfIdx + 1; fd2 < focList.length; fd2++) {
+                  if (focList[fd2].classList && focList[fd2].classList.contains('category-title')) {
+                    next = focList[fd2]; break;
+                  }
                 }
-              }
-            } else if (key === 'ArrowUp' && isCatTitle) {
-              // Cat-title → first thumbnail of previous section
-              // Find the previous cat-title, then take the first non-title after it
-              var prevCatIdx = -1;
-              for (var fu2 = selfIdx - 1; fu2 >= 0; fu2--) {
-                if (focList[fu2].classList && focList[fu2].classList.contains('category-title')) {
-                  prevCatIdx = fu2; break;
+              } else if (key === 'ArrowUp' && !isCatTitle) {
+                // Thumbnail → preceding category-title
+                for (var fu = selfIdx - 1; fu >= 0; fu--) {
+                  if (focList[fu].classList && focList[fu].classList.contains('category-title')) {
+                    next = focList[fu]; break;
+                  }
                 }
-              }
-              if (prevCatIdx >= 0) {
-                for (var ft = prevCatIdx + 1; ft < selfIdx; ft++) {
-                  if (!(focList[ft].classList && focList[ft].classList.contains('category-title'))) {
-                    next = focList[ft]; break;
+              } else if (key === 'ArrowUp' && isCatTitle) {
+                // Cat-title → first thumbnail of previous section
+                // Find the previous cat-title, then take the first non-title after it
+                var prevCatIdx = -1;
+                for (var fu2 = selfIdx - 1; fu2 >= 0; fu2--) {
+                  if (focList[fu2].classList && focList[fu2].classList.contains('category-title')) {
+                    prevCatIdx = fu2; break;
+                  }
+                }
+                if (prevCatIdx >= 0) {
+                  for (var ft = prevCatIdx + 1; ft < selfIdx; ft++) {
+                    if (!(focList[ft].classList && focList[ft].classList.contains('category-title'))) {
+                      next = focList[ft]; break;
+                    }
                   }
                 }
               }
@@ -1013,6 +1053,18 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
+        // If a ds-select dropdown is open (user is navigating its options), close it
+        var escActive = document.activeElement;
+        if (escActive && escActive.tagName === 'DS-SELECT-OPTION') {
+          var escParentSel = escActive.closest('ds-select');
+          if (escParentSel) {
+            escParentSel.click(); // toggle closed
+            escParentSel.focus();
+            e.preventDefault();
+            return;
+          }
+        }
+
         // If in fullscreen, exit fullscreen and pause video
         if (isInFullscreen()) {
           var fsVideo = document.querySelector('video');

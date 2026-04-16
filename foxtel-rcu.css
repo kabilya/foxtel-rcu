@@ -14,6 +14,8 @@
 .foxtel-sbb video-player:focus,
 .foxtel-sbb ds-button:focus,
 .foxtel-sbb ds-input:focus,
+.foxtel-sbb ds-select:focus,
+.foxtel-sbb ds-select-option:focus,
 .foxtel-sbb [onclick]:focus {
     outline: 6px solid #FFB800 !important;
     outline-offset: 4px;
