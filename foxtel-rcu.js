@@ -535,6 +535,312 @@
       focusFirst();
     }
 
+    // --- Custom Filter Modal ---
+    // TV-optimised two-panel overlay replacing the native ds-select dropdowns.
+    // Reads filter categories and options live from the page (fully dynamic),
+    // lets the user navigate with arrow keys, then applies the selection by
+    // clicking the native ds-select-option element.
+
+    var _filterOpen = false;
+    var _filterOverlay = null;
+    var _filterFilters = []; // [{label, dsElement, options:[{text,value,element}], selectedIdx}]
+    var _filterLeftIdx = 0;
+    var _filterRightIdx = 0;
+    var _filterPanel = 'left'; // 'left' | 'right'
+    var _filterReturnEl = null;
+
+    function _filterGetLabel(ds) {
+      var label = ds.getAttribute('label') ||
+                  ds.getAttribute('placeholder') ||
+                  ds.getAttribute('aria-label') || '';
+      if (label) return label;
+      // Check for a visible label element just before this ds-select in DOM
+      var prev = ds.previousElementSibling;
+      if (prev && prev.textContent) return prev.textContent.trim();
+      // Clean up id: category_id → Category, author_id → Author,
+      // catalog_filter_14153 → Filter
+      var id = ds.id || '';
+      if (!id) return 'Filter';
+      if (id.indexOf('catalog_filter') === 0) return 'Filter';
+      return id.replace(/_id$/, '').replace(/_/g, ' ')
+               .replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+
+    function _filterRead() {
+      var out = [];
+      var dsSelects = document.querySelectorAll('ds-select');
+      for (var i = 0; i < dsSelects.length; i++) {
+        var ds = dsSelects[i];
+        // Skip zero-size (truly hidden) elements
+        var rect = ds.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        var rawOpts = ds.querySelectorAll('ds-select-option');
+        if (!rawOpts.length) continue;
+        var curVal = ds.getAttribute('value') || ds.value || '';
+        var opts = [];
+        var selIdx = -1;
+        for (var j = 0; j < rawOpts.length; j++) {
+          var opt = rawOpts[j];
+          var val = opt.getAttribute('value') || '';
+          var isSel = opt.getAttribute('aria-selected') === 'true' ||
+                      opt.hasAttribute('selected') ||
+                      (curVal !== '' && val === curVal);
+          if (isSel && selIdx < 0) selIdx = j;
+          opts.push({ text: opt.textContent.trim(), value: val, element: opt });
+        }
+        out.push({
+          label: _filterGetLabel(ds),
+          dsElement: ds,
+          options: opts,
+          selectedIdx: selIdx
+        });
+      }
+      return out;
+    }
+
+    function _filterBuild() {
+      var old = document.getElementById('rcu-filter-modal');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+
+      var ov = document.createElement('div');
+      ov.id = 'rcu-filter-modal';
+      ov.setAttribute('tabindex', '-1');
+      ov.style.cssText = [
+        'position:fixed', 'top:0', 'left:0', 'right:0', 'bottom:0',
+        'background:rgba(0,0,0,0.94)',
+        'z-index:99997',
+        'display:flex', 'flex-direction:column',
+        'padding:3vh 4vw', 'box-sizing:border-box',
+        'font-family:sans-serif', 'outline:none'
+      ].join(';');
+
+      // Header
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5vh;flex-shrink:0;';
+      var htitle = document.createElement('span');
+      htitle.style.cssText = 'color:#fff;font-size:28px;font-weight:bold;letter-spacing:1px;';
+      htitle.textContent = 'Filters';
+      var hclose = document.createElement('button');
+      hclose.id = 'rcu-filter-close-btn';
+      hclose.style.cssText = 'background:#222;color:#ccc;border:2px solid #444;border-radius:8px;padding:8px 24px;font-size:20px;cursor:pointer;';
+      hclose.textContent = 'Close  [Esc]';
+      hdr.appendChild(htitle);
+      hdr.appendChild(hclose);
+      ov.appendChild(hdr);
+
+      // Hint text
+      var hint = document.createElement('div');
+      hint.style.cssText = 'color:#555;font-size:15px;margin-bottom:2vh;flex-shrink:0;';
+      hint.textContent = '\u2190\u2192 Switch panels   \u2191\u2193 Navigate   OK Select   Esc Close';
+      ov.appendChild(hint);
+
+      // Two-panel body
+      var body = document.createElement('div');
+      body.style.cssText = 'display:flex;flex:1;gap:2vw;overflow:hidden;min-height:0;';
+
+      var lp = document.createElement('div');
+      lp.id = 'rcu-filter-left';
+      lp.style.cssText = 'width:32%;background:#111;border-radius:10px;overflow-y:auto;border:2px solid #222;';
+
+      var rp = document.createElement('div');
+      rp.id = 'rcu-filter-right';
+      rp.style.cssText = 'flex:1;background:#111;border-radius:10px;overflow-y:auto;border:2px solid #222;';
+
+      body.appendChild(lp);
+      body.appendChild(rp);
+      ov.appendChild(body);
+      document.body.appendChild(ov);
+      _filterOverlay = ov;
+    }
+
+    function _filterRenderLeft() {
+      var lp = document.getElementById('rcu-filter-left');
+      if (!lp) return;
+      lp.innerHTML = '';
+      for (var i = 0; i < _filterFilters.length; i++) {
+        var f = _filterFilters[i];
+        var active = _filterPanel === 'left' && i === _filterLeftIdx;
+        var row = document.createElement('div');
+        row.style.cssText = [
+          'display:flex', 'justify-content:space-between', 'align-items:center',
+          'padding:14px 18px',
+          'border-left:4px solid ' + (active ? '#FFB800' : 'transparent'),
+          'background:' + (active ? '#2a2500' : 'transparent'),
+          'color:' + (active ? '#FFB800' : '#bbb'),
+          'font-size:20px'
+        ].join(';');
+        var lbl = document.createElement('span');
+        lbl.textContent = f.label;
+        row.appendChild(lbl);
+        if (f.selectedIdx >= 0) {
+          var sel = document.createElement('span');
+          sel.style.cssText = 'font-size:13px;color:' + (active ? '#FFB800' : '#666') + ';max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+          sel.textContent = f.options[f.selectedIdx].text;
+          row.appendChild(sel);
+        }
+        lp.appendChild(row);
+      }
+      if (lp.children[_filterLeftIdx]) {
+        lp.children[_filterLeftIdx].scrollIntoView({ block: 'nearest' });
+      }
+    }
+
+    function _filterRenderRight() {
+      var rp = document.getElementById('rcu-filter-right');
+      if (!rp || !_filterFilters.length) return;
+      rp.innerHTML = '';
+      var f = _filterFilters[_filterLeftIdx];
+      if (!f) return;
+
+      // Category heading
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'padding:12px 18px 14px;font-size:16px;color:#555;border-bottom:1px solid #1e1e1e;';
+      hdr.textContent = f.label;
+      rp.appendChild(hdr);
+
+      for (var i = 0; i < f.options.length; i++) {
+        var opt = f.options[i];
+        var active = _filterPanel === 'right' && i === _filterRightIdx;
+        var checked = i === f.selectedIdx;
+        var row = document.createElement('div');
+        row.style.cssText = [
+          'display:flex', 'align-items:center', 'gap:14px',
+          'padding:12px 18px',
+          'border-left:4px solid ' + (active ? '#FFB800' : 'transparent'),
+          'background:' + (active ? '#2a2500' : 'transparent'),
+          'color:' + (active ? '#FFB800' : checked ? '#FFB800' : '#bbb'),
+          'font-size:20px'
+        ].join(';');
+        // Radio dot
+        var dot = document.createElement('span');
+        dot.style.cssText = [
+          'flex-shrink:0', 'width:16px', 'height:16px', 'border-radius:50%',
+          'border:2px solid ' + (checked ? '#FFB800' : '#444'),
+          'background:' + (checked ? '#FFB800' : 'transparent'),
+          'display:inline-block'
+        ].join(';');
+        row.appendChild(dot);
+        var txt = document.createElement('span');
+        txt.textContent = opt.text;
+        row.appendChild(txt);
+        rp.appendChild(row);
+      }
+      // Scroll active option into view (+1 offset for header row)
+      var target = rp.children[_filterRightIdx + 1];
+      if (target) target.scrollIntoView({ block: 'nearest' });
+    }
+
+    function openFilterModal() {
+      _filterFilters = _filterRead();
+      if (!_filterFilters.length) return; // no visible filters on this page
+      _filterReturnEl = document.activeElement;
+      _filterLeftIdx = 0;
+      _filterRightIdx = _filterFilters[0].selectedIdx >= 0 ? _filterFilters[0].selectedIdx : 0;
+      _filterPanel = 'left';
+      _filterOpen = true;
+      _filterBuild();
+      _filterRenderLeft();
+      _filterRenderRight();
+      _filterOverlay.focus();
+    }
+
+    function closeFilterModal() {
+      _filterOpen = false;
+      var ov = document.getElementById('rcu-filter-modal');
+      if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+      _filterOverlay = null;
+      if (_filterReturnEl) {
+        _filterReturnEl.focus();
+        _filterReturnEl = null;
+      }
+    }
+
+    function _filterApply() {
+      var f = _filterFilters[_filterLeftIdx];
+      if (!f || _filterRightIdx < 0 || _filterRightIdx >= f.options.length) return;
+      var chosen = f.options[_filterRightIdx];
+
+      // Update local selected state immediately for visual feedback
+      f.selectedIdx = _filterRightIdx;
+
+      // Apply to native element: open the ds-select (makes option clickable),
+      // then click the option. Native dropdown renders beneath our modal so
+      // the user never sees it.
+      try {
+        f.dsElement.click(); // open dropdown
+        setTimeout(function() {
+          try { chosen.element.click(); } catch (ex) {}
+          _filterRenderLeft();
+          _filterRenderRight();
+        }, 80);
+      } catch (ex) {
+        try { chosen.element.click(); } catch (e2) {}
+        _filterRenderLeft();
+        _filterRenderRight();
+      }
+    }
+
+    function _filterKey(key) {
+      if (key === 'Escape') {
+        closeFilterModal();
+        return;
+      }
+      if (key === 'ArrowUp') {
+        if (_filterPanel === 'left') {
+          if (_filterLeftIdx > 0) {
+            _filterLeftIdx--;
+            var nf = _filterFilters[_filterLeftIdx];
+            _filterRightIdx = nf && nf.selectedIdx >= 0 ? nf.selectedIdx : 0;
+            _filterRenderLeft();
+            _filterRenderRight();
+          }
+        } else {
+          if (_filterRightIdx > 0) { _filterRightIdx--; _filterRenderRight(); }
+        }
+        return;
+      }
+      if (key === 'ArrowDown') {
+        if (_filterPanel === 'left') {
+          if (_filterLeftIdx < _filterFilters.length - 1) {
+            _filterLeftIdx++;
+            var nf2 = _filterFilters[_filterLeftIdx];
+            _filterRightIdx = nf2 && nf2.selectedIdx >= 0 ? nf2.selectedIdx : 0;
+            _filterRenderLeft();
+            _filterRenderRight();
+          }
+        } else {
+          var maxOpt = _filterFilters[_filterLeftIdx] ? _filterFilters[_filterLeftIdx].options.length - 1 : 0;
+          if (_filterRightIdx < maxOpt) { _filterRightIdx++; _filterRenderRight(); }
+        }
+        return;
+      }
+      if (key === 'ArrowRight' || (key === 'Enter' && _filterPanel === 'left')) {
+        _filterPanel = 'right';
+        var cf = _filterFilters[_filterLeftIdx];
+        _filterRightIdx = cf && cf.selectedIdx >= 0 ? cf.selectedIdx : 0;
+        _filterRenderLeft();
+        _filterRenderRight();
+        return;
+      }
+      if (key === 'ArrowLeft') {
+        if (_filterPanel === 'right') {
+          _filterPanel = 'left';
+          _filterRenderLeft();
+          _filterRenderRight();
+        }
+        return;
+      }
+      if (key === 'Enter' && _filterPanel === 'right') {
+        _filterApply();
+        return;
+      }
+    }
+
+    // Clean up modal on Turbo navigation
+    document.addEventListener('turbo:before-visit', function() {
+      if (_filterOpen) closeFilterModal();
+    });
+
     // --- Volume indicator ---
     var _volTimer = null;
     var _trackedVolume = 1; // fallback level when no video is on page
@@ -761,6 +1067,14 @@
         } else if (/^[a-zA-Z0-9@.\-_]$/.test(key)) {
           kbdDirectInput(key);
         }
+        return;
+      }
+
+      // --- Filter modal intercept (consumes ALL keys when open) ---
+      if (_filterOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        _filterKey(key);
         return;
       }
 
@@ -1078,6 +1392,15 @@
           var playBtn = focused.closest('.theme\\:video--play-button');
           if (playBtn.onclick) playBtn.onclick();
           e.preventDefault();
+          return;
+        }
+
+        // Filters toggle button: open our custom filter modal instead of
+        // letting UScreen handle the ds-select dropdowns natively.
+        if (focused.id === 'catalog_filter_button' ||
+            (focused.classList && focused.classList.contains('toggle-filters'))) {
+          e.preventDefault();
+          openFilterModal();
           return;
         }
 
