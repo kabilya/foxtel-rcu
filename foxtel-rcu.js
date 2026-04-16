@@ -571,9 +571,8 @@
       var dsSelects = document.querySelectorAll('ds-select');
       for (var i = 0; i < dsSelects.length; i++) {
         var ds = dsSelects[i];
-        // Skip zero-size (truly hidden) elements
-        var rect = ds.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) continue;
+        // Read options from DOM regardless of whether the native panel is
+        // open or collapsed — options are in light DOM at all times.
         var rawOpts = ds.querySelectorAll('ds-select-option');
         if (!rawOpts.length) continue;
         var curVal = ds.getAttribute('value') || ds.value || '';
