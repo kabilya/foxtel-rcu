@@ -567,33 +567,42 @@
     }
 
     function _filterRead() {
+      // Read active filter values from the URL — UScreen uses query params
+      // matching the ds-select IDs (e.g. ?category_id=5&author_id=2).
+      // This is reliable even when the native filter panel is collapsed.
+      var urlParams = new URL(window.location.href).searchParams;
       var out = [];
       var dsSelects = document.querySelectorAll('ds-select');
       for (var i = 0; i < dsSelects.length; i++) {
         var ds = dsSelects[i];
-        // Read options from DOM regardless of whether the native panel is
-        // open or collapsed — options are in light DOM at all times.
         var rawOpts = ds.querySelectorAll('ds-select-option');
         if (!rawOpts.length) continue;
-        var curVal = ds.getAttribute('value') || ds.value || '';
+        // Current value: URL param takes priority over DOM state
+        var curVal = urlParams.get(ds.id) || ds.getAttribute('value') || ds.value || '';
         var opts = [];
         var selIdx = -1;
         for (var j = 0; j < rawOpts.length; j++) {
           var opt = rawOpts[j];
           var val = opt.getAttribute('value') || '';
-          var isSel = opt.getAttribute('aria-selected') === 'true' ||
-                      opt.hasAttribute('selected') ||
-                      (curVal !== '' && val === curVal);
-          if (isSel && selIdx < 0) selIdx = j;
+          if (curVal !== '' && val === curVal && selIdx < 0) selIdx = j;
           opts.push({ text: opt.textContent.trim(), value: val, element: opt });
         }
         out.push({
           label: _filterGetLabel(ds),
           dsElement: ds,
           options: opts,
-          selectedIdx: selIdx
+          selectedIdx: selIdx,
+          _isClearAll: false
         });
       }
+      // Append "Clear All Filters" as last item in the left panel
+      out.push({
+        label: 'Clear All Filters',
+        dsElement: null,
+        options: [],
+        selectedIdx: -1,
+        _isClearAll: true
+      });
       return out;
     }
 
@@ -630,7 +639,7 @@
       // Hint text
       var hint = document.createElement('div');
       hint.style.cssText = 'color:#555;font-size:15px;margin-bottom:2vh;flex-shrink:0;';
-      hint.textContent = '\u2190\u2192 Switch panels   \u2191\u2193 Navigate   OK Select   Esc Close';
+      hint.textContent = '\u2191\u2193 Navigate   \u2192 or OK: open category   OK on option: apply filter   Esc: close';
       ov.appendChild(hint);
 
       // Two-panel body
@@ -668,10 +677,16 @@
           'color:' + (active ? '#FFB800' : '#bbb'),
           'font-size:20px'
         ].join(';');
+        // "Clear All" gets a distinct red colour
+        if (f._isClearAll) {
+          row.style.color = active ? '#ff6b6b' : '#884444';
+          row.style.borderTop = '1px solid #222';
+          row.style.marginTop = '4px';
+        }
         var lbl = document.createElement('span');
         lbl.textContent = f.label;
         row.appendChild(lbl);
-        if (f.selectedIdx >= 0) {
+        if (!f._isClearAll && f.selectedIdx >= 0) {
           var sel = document.createElement('span');
           sel.style.cssText = 'font-size:13px;color:' + (active ? '#FFB800' : '#666') + ';max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
           sel.textContent = f.options[f.selectedIdx].text;
@@ -690,6 +705,15 @@
       rp.innerHTML = '';
       var f = _filterFilters[_filterLeftIdx];
       if (!f) return;
+
+      // "Clear All Filters" confirmation panel
+      if (f._isClearAll) {
+        var msg = document.createElement('div');
+        msg.style.cssText = 'padding:32px 24px;color:#ff6b6b;font-size:22px;line-height:1.6;';
+        msg.textContent = 'Press OK to remove all active filters and show all content.';
+        rp.appendChild(msg);
+        return;
+      }
 
       // Category heading
       var hdr = document.createElement('div');
@@ -731,9 +755,10 @@
 
     function openFilterModal() {
       _filterFilters = _filterRead();
-      if (!_filterFilters.length) return; // no visible filters on this page
+      // Need at least 1 real filter (last item is always "Clear All")
+      if (_filterFilters.length < 2) return;
       _filterReturnEl = document.activeElement;
-      _filterLeftIdx = 0;
+      _filterLeftIdx = 0; // start on first real filter category
       _filterRightIdx = _filterFilters[0].selectedIdx >= 0 ? _filterFilters[0].selectedIdx : 0;
       _filterPanel = 'left';
       _filterOpen = true;
@@ -754,29 +779,33 @@
       }
     }
 
-    function _filterApply() {
+    function _filterApplyAndClose() {
+      // Apply a single filter by navigating to a URL with the selected value
+      // as a query parameter. UScreen catalog uses ?ds_select_id=value params.
       var f = _filterFilters[_filterLeftIdx];
-      if (!f || _filterRightIdx < 0 || _filterRightIdx >= f.options.length) return;
+      if (!f || f._isClearAll || _filterRightIdx < 0 || _filterRightIdx >= f.options.length) return;
       var chosen = f.options[_filterRightIdx];
-
-      // Update local selected state immediately for visual feedback
-      f.selectedIdx = _filterRightIdx;
-
-      // Apply to native element: open the ds-select (makes option clickable),
-      // then click the option. Native dropdown renders beneath our modal so
-      // the user never sees it.
-      try {
-        f.dsElement.click(); // open dropdown
-        setTimeout(function() {
-          try { chosen.element.click(); } catch (ex) {}
-          _filterRenderLeft();
-          _filterRenderRight();
-        }, 80);
-      } catch (ex) {
-        try { chosen.element.click(); } catch (e2) {}
-        _filterRenderLeft();
-        _filterRenderRight();
+      var key = f.dsElement ? f.dsElement.id : '';
+      var url = new URL(window.location.href);
+      if (chosen.value && chosen.value !== '') {
+        url.searchParams.set(key, chosen.value);
+      } else {
+        url.searchParams.delete(key); // "All" option clears that filter
       }
+      closeFilterModal();
+      window.location.href = url.toString();
+    }
+
+    function _filterClearAndClose() {
+      // Remove all filter query params and reload
+      var url = new URL(window.location.href);
+      for (var i = 0; i < _filterFilters.length; i++) {
+        if (_filterFilters[i]._isClearAll) continue;
+        var k = _filterFilters[i].dsElement ? _filterFilters[i].dsElement.id : '';
+        if (k) url.searchParams.delete(k);
+      }
+      closeFilterModal();
+      window.location.href = url.toString();
     }
 
     function _filterKey(key) {
@@ -789,7 +818,7 @@
           if (_filterLeftIdx > 0) {
             _filterLeftIdx--;
             var nf = _filterFilters[_filterLeftIdx];
-            _filterRightIdx = nf && nf.selectedIdx >= 0 ? nf.selectedIdx : 0;
+            _filterRightIdx = (!nf._isClearAll && nf.selectedIdx >= 0) ? nf.selectedIdx : 0;
             _filterRenderLeft();
             _filterRenderRight();
           }
@@ -803,7 +832,7 @@
           if (_filterLeftIdx < _filterFilters.length - 1) {
             _filterLeftIdx++;
             var nf2 = _filterFilters[_filterLeftIdx];
-            _filterRightIdx = nf2 && nf2.selectedIdx >= 0 ? nf2.selectedIdx : 0;
+            _filterRightIdx = (!nf2._isClearAll && nf2.selectedIdx >= 0) ? nf2.selectedIdx : 0;
             _filterRenderLeft();
             _filterRenderRight();
           }
@@ -814,9 +843,14 @@
         return;
       }
       if (key === 'ArrowRight' || (key === 'Enter' && _filterPanel === 'left')) {
-        _filterPanel = 'right';
         var cf = _filterFilters[_filterLeftIdx];
-        _filterRightIdx = cf && cf.selectedIdx >= 0 ? cf.selectedIdx : 0;
+        if (cf && cf._isClearAll) {
+          // "Clear All" — apply immediately without entering right panel
+          _filterClearAndClose();
+          return;
+        }
+        _filterPanel = 'right';
+        _filterRightIdx = (cf && cf.selectedIdx >= 0) ? cf.selectedIdx : 0;
         _filterRenderLeft();
         _filterRenderRight();
         return;
@@ -830,7 +864,7 @@
         return;
       }
       if (key === 'Enter' && _filterPanel === 'right') {
-        _filterApply();
+        _filterApplyAndClose();
         return;
       }
     }
