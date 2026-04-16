@@ -585,6 +585,7 @@
           var opt = rawOpts[j];
           var val = opt.getAttribute('value') || '';
           if (curVal !== '' && val === curVal && selIdx < 0) selIdx = j;
+          if (j === 0) console.log('[rcu-filter] ds-select id=', ds.id, 'opt[0] attrs:', Array.prototype.slice.call(opt.attributes).map(function(a){ return a.name+'='+a.value; }).join(', '));
           opts.push({ text: opt.textContent.trim(), value: val, element: opt });
         }
         out.push({
@@ -818,16 +819,19 @@
 
     function _filterApplyAll() {
       // Build /catalog/search?param=value URL from all locally-selected filters.
-      // UScreen filter URLs are: /catalog/search?category_id=5&author_id=2 etc.
       var url = new URL(window.location.origin + '/catalog/search');
       for (var i = 0; i < _filterFilters.length; i++) {
         var f = _filterFilters[i];
         if (f._isApply || f._isClearAll || !f.dsElement) continue;
+        console.log('[rcu-filter] filter', i, 'id=', f.dsElement.id, 'selectedIdx=', f.selectedIdx,
+          'opts=', f.options.map(function(o){ return o.value + '(' + o.text + ')'; }));
         if (f.selectedIdx >= 0) {
           var val = f.options[f.selectedIdx].value;
+          console.log('[rcu-filter] applying', f.dsElement.id, '=', val);
           if (val && val !== '') url.searchParams.set(f.dsElement.id, val);
         }
       }
+      console.log('[rcu-filter] navigating to', url.toString());
       closeFilterModal();
       window.location.href = url.toString();
     }
