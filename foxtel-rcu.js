@@ -583,10 +583,10 @@
         var selIdx = -1;
         for (var j = 0; j < rawOpts.length; j++) {
           var opt = rawOpts[j];
-          var val = opt.getAttribute('value') || '';
+          var val = opt.getAttribute('value') || opt.value || '';
           if (curVal !== '' && val === curVal && selIdx < 0) selIdx = j;
-          if (j === 0) console.log('[rcu-filter] ds-select id=', ds.id, 'opt[0] attrs:', Array.prototype.slice.call(opt.attributes).map(function(a){ return a.name+'='+a.value; }).join(', '));
-          opts.push({ text: opt.textContent.trim(), value: val, element: opt });
+          if (j <= 2) console.log('[rcu-filter] opt['+j+'] getAttribute(value)=', opt.getAttribute('value'), 'opt.value=', opt.value, 'label=', opt.getAttribute('label'), 'innerHTML=', opt.innerHTML.substring(0, 120));
+          opts.push({ text: (opt.getAttribute('label') || opt.textContent.trim()), value: val, element: opt });
         }
         out.push({
           label: _filterGetLabel(ds),
