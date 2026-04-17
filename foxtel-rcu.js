@@ -910,17 +910,23 @@
       if (_filterOpen) closeFilterModal();
     });
 
-    // On catalog/search page: auto-collapse the native filter panel so it
-    // doesn't interfere with arrow-key navigation (our custom modal still works
-    // because _filterRead() reads ds-select-option from DOM regardless of visibility).
+    // On catalog pages: hide the native ds-select filter grid so it doesn't
+    // interfere with arrow-key navigation. Our custom modal still works because
+    // _filterRead() queries ds-select-option from the DOM regardless of visibility.
     function collapseNativeFilters() {
       if (window.location.pathname.indexOf('/catalog') !== 0) return;
-      // Hide filter content panel (keep the toggle row visible)
-      var panels = document.querySelectorAll(
-        '.catalog-filters__content, .filter-panel-content, [class*="filter-content"], [class*="filters-content"]'
-      );
-      for (var pi = 0; pi < panels.length; pi++) {
-        panels[pi].style.display = 'none';
+      var selects = document.querySelectorAll('ds-select');
+      if (!selects.length) { setTimeout(collapseNativeFilters, 500); return; }
+      // Walk up from the first ds-select to find the lowest ancestor that
+      // contains MORE than one ds-select — that's the filter grid wrapper,
+      // not the toggle-button row which lives separately.
+      var el = selects[0].parentElement;
+      while (el && el !== document.body) {
+        if (el.querySelectorAll('ds-select').length > 1) {
+          el.style.display = 'none';
+          return;
+        }
+        el = el.parentElement;
       }
     }
     setTimeout(collapseNativeFilters, 500);
