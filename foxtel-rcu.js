@@ -583,9 +583,10 @@
         var selIdx = -1;
         for (var j = 0; j < rawOpts.length; j++) {
           var opt = rawOpts[j];
-          var val = opt.getAttribute('value') || opt.value || '';
+          // ds-select-option uses 'name' attribute for the numeric value (e.g. "72032"),
+          // not 'value'. Empty name = "All" / no filter.
+          var val = opt.getAttribute('value') || opt.value || opt.getAttribute('name') || '';
           if (curVal !== '' && val === curVal && selIdx < 0) selIdx = j;
-          if (j <= 2) console.log('[rcu-filter] opt['+j+'] getAttribute(value)=', opt.getAttribute('value'), 'opt.value=', opt.value, 'label=', opt.getAttribute('label'), 'innerHTML=', opt.innerHTML.substring(0, 120));
           opts.push({ text: (opt.getAttribute('label') || opt.textContent.trim()), value: val, element: opt });
         }
         out.push({
@@ -823,15 +824,11 @@
       for (var i = 0; i < _filterFilters.length; i++) {
         var f = _filterFilters[i];
         if (f._isApply || f._isClearAll || !f.dsElement) continue;
-        console.log('[rcu-filter] filter', i, 'id=', f.dsElement.id, 'selectedIdx=', f.selectedIdx,
-          'opts=', f.options.map(function(o){ return o.value + '(' + o.text + ')'; }));
         if (f.selectedIdx >= 0) {
           var val = f.options[f.selectedIdx].value;
-          console.log('[rcu-filter] applying', f.dsElement.id, '=', val);
           if (val && val !== '') url.searchParams.set(f.dsElement.id, val);
         }
       }
-      console.log('[rcu-filter] navigating to', url.toString());
       closeFilterModal();
       window.location.href = url.toString();
     }
@@ -911,6 +908,24 @@
     // Clean up modal on Turbo navigation
     document.addEventListener('turbo:before-visit', function() {
       if (_filterOpen) closeFilterModal();
+    });
+
+    // On catalog/search page: auto-collapse the native filter panel so it
+    // doesn't interfere with arrow-key navigation (our custom modal still works
+    // because _filterRead() reads ds-select-option from DOM regardless of visibility).
+    function collapseNativeFilters() {
+      if (window.location.pathname.indexOf('/catalog') !== 0) return;
+      // Hide filter content panel (keep the toggle row visible)
+      var panels = document.querySelectorAll(
+        '.catalog-filters__content, .filter-panel-content, [class*="filter-content"], [class*="filters-content"]'
+      );
+      for (var pi = 0; pi < panels.length; pi++) {
+        panels[pi].style.display = 'none';
+      }
+    }
+    setTimeout(collapseNativeFilters, 500);
+    document.addEventListener('turbo:load', function() {
+      setTimeout(collapseNativeFilters, 500);
     });
 
     // --- Volume indicator ---
@@ -1277,19 +1292,19 @@
         var isCatTitle = active.classList && active.classList.contains('category-title');
         var hasCatalog = document.querySelector('.category-title');
 
+        // Build focList once — used by both catalog rules and the fallback below.
+        var focList = getVisibleFocusables();
+        var selfIdx = -1;
+        for (var fi = 0; fi < focList.length; fi++) {
+          if (focList[fi] === active) { selfIdx = fi; break; }
+        }
+
+        // Nothing focused (e.g. page just loaded): Down = first focusable.
+        if (selfIdx === -1 && key === 'ArrowDown' && focList.length > 0) {
+          next = focList[0];
+        }
+
         if (hasCatalog && (key === 'ArrowUp' || key === 'ArrowDown')) {
-          var focList = getVisibleFocusables();
-          var selfIdx = -1;
-          for (var fi = 0; fi < focList.length; fi++) {
-            if (focList[fi] === active) { selfIdx = fi; break; }
-          }
-
-          // If active element isn't in focList (e.g. body on page load),
-          // Down should land on the very first focusable element (Filters bar / nav).
-          if (selfIdx === -1 && key === 'ArrowDown' && focList.length > 0) {
-            next = focList[0];
-          }
-
           if (selfIdx >= 0) {
             // Only apply catalog rules when active element is at or after
             // the first category-title (excludes nav bar, filter panel, etc.)
