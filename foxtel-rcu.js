@@ -1284,6 +1284,12 @@
             if (focList[fi] === active) { selfIdx = fi; break; }
           }
 
+          // If active element isn't in focList (e.g. body on page load),
+          // Down should land on the very first focusable element (Filters bar / nav).
+          if (selfIdx === -1 && key === 'ArrowDown' && focList.length > 0) {
+            next = focList[0];
+          }
+
           if (selfIdx >= 0) {
             // Only apply catalog rules when active element is at or after
             // the first category-title (excludes nav bar, filter panel, etc.)
