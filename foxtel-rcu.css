@@ -187,3 +187,13 @@ body.rcu-fullscreen-active .header,
 body.rcu-fullscreen-active .footer {
     visibility: hidden !important;
 }
+
+/* Hide the site footer on SBB (not needed on TV) */
+footer {
+    display: none !important;
+}
+
+/* Larger video title text for TV readability (+50%) */
+.line-clamp-2 {
+    font-size: 1.5em !important;
+}
