@@ -201,6 +201,7 @@ footer {
 }
 
 /* Hide "See All" links on SBB — confusing for elderly users */
+.foxtel-sbb .category-see-all,
 .foxtel-sbb a[href*="see_all"],
 .foxtel-sbb a[href*="see-all"],
 .foxtel-sbb a[class*="see-all"],
