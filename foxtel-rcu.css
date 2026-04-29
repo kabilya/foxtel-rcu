@@ -200,12 +200,12 @@ footer {
     font-size: 1.5em !important;
 }
 
-/* "See All" links */
+/* Hide "See All" links on SBB — confusing for elderly users */
 .foxtel-sbb a[href*="see_all"],
 .foxtel-sbb a[href*="see-all"],
 .foxtel-sbb a[class*="see-all"],
 .foxtel-sbb a[class*="seeAll"] {
-    font-size: 1.4em !important;
+    display: none !important;
 }
 
 /* Category / section headings */

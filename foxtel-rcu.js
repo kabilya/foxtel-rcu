@@ -956,9 +956,21 @@
         el = el.parentElement;
       }
     }
+    function hideSeeAllLinks() {
+      var links = document.querySelectorAll('a');
+      for (var i = 0; i < links.length; i++) {
+        var txt = links[i].textContent.trim().toLowerCase();
+        if (txt === 'see all' || txt === 'view all') {
+          links[i].style.display = 'none';
+        }
+      }
+    }
+
     setTimeout(collapseNativeFilters, 500);
+    setTimeout(hideSeeAllLinks, 500);
     document.addEventListener('turbo:load', function() {
       setTimeout(collapseNativeFilters, 500);
+      setTimeout(hideSeeAllLinks, 500);
     });
 
     // --- Volume indicator ---
