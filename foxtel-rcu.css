@@ -193,13 +193,12 @@ footer {
     display: none !important;
 }
 
-/* Hide Share, Add to Calendar buttons on video pages (not useful on TV) */
-.foxtel-sbb ds-button[data-area="share-button"],
-.foxtel-sbb ds-button[data-area="calendar-button"],
-.foxtel-sbb [data-action*="share-button"],
-.foxtel-sbb [data-action*="calendar"],
-.foxtel-sbb ds-button:has(ds-icon[name="share"]),
-.foxtel-sbb ds-button:has(ds-icon[name="calendar-plus"]) {
+/* Hide Share, Add to Calendar buttons on video pages */
+ds-button[data-area="share-button"],
+ds-button[data-area="calendar-button"],
+[data-action*="share-button"],
+ds-button:has(ds-icon[name="share"]),
+ds-button:has(ds-icon[name="calendar-plus"]) {
     display: none !important;
 }
 
@@ -210,12 +209,12 @@ footer {
     font-size: 1.5em !important;
 }
 
-/* Hide "See All" links on SBB — confusing for elderly users */
-.foxtel-sbb .category-see-all,
-.foxtel-sbb a[href*="see_all"],
-.foxtel-sbb a[href*="see-all"],
-.foxtel-sbb a[class*="see-all"],
-.foxtel-sbb a[class*="seeAll"] {
+/* Hide "See All" links — confusing for elderly users */
+.category-see-all,
+a[href*="see_all"],
+a[href*="see-all"],
+a[class*="see-all"],
+a[class*="seeAll"] {
     display: none !important;
 }
 
