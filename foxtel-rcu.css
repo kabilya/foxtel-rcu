@@ -198,7 +198,8 @@ ds-button[data-area="share-button"],
 ds-button[data-area="calendar-button"],
 [data-action*="share-button"],
 ds-button:has(ds-icon[name="share"]),
-ds-button:has(ds-icon[name="calendar-plus"]) {
+ds-button:has(ds-icon[name="calendar-plus"]),
+#program_buttons_add_to_calendars {
     display: none !important;
 }
 
