@@ -635,16 +635,17 @@
       htitle.textContent = 'Filters';
       var hclose = document.createElement('button');
       hclose.id = 'rcu-filter-close-btn';
-      hclose.style.cssText = 'background:#222;color:#ccc;border:2px solid #444;border-radius:8px;padding:8px 24px;font-size:20px;cursor:pointer;';
-      hclose.textContent = 'Close  [Esc]';
+      hclose.style.cssText = 'background:#222;color:#ccc;border:2px solid #444;border-radius:8px;padding:12px 32px;font-size:24px;cursor:pointer;';
+      hclose.textContent = 'Close';
+      hclose.addEventListener('click', function() { closeFilterModal(); });
       hdr.appendChild(htitle);
       hdr.appendChild(hclose);
       ov.appendChild(hdr);
 
       // Hint text
       var hint = document.createElement('div');
-      hint.style.cssText = 'color:#555;font-size:15px;margin-bottom:2vh;flex-shrink:0;';
-      hint.textContent = '\u2191\u2193 Navigate   \u2192 / OK: open category   OK on option: select   then \u2193 to Apply Filters   Esc: close';
+      hint.style.cssText = 'color:#777;font-size:22px;margin-bottom:2vh;flex-shrink:0;';
+      hint.textContent = '\u2191\u2193 Navigate   \u2192 / OK: open category   OK on option: select   \u2193 to Apply Filters';
       ov.appendChild(hint);
 
       // Two-panel body
@@ -839,9 +840,32 @@
       window.location.href = window.location.origin + '/catalog';
     }
 
+    var _filterCloseActive = false;
+
+    function _filterHighlightClose(active) {
+      _filterCloseActive = active;
+      var btn = document.getElementById('rcu-filter-close-btn');
+      if (!btn) return;
+      btn.style.borderColor = active ? '#FFB800' : '#444';
+      btn.style.color = active ? '#FFB800' : '#ccc';
+      btn.style.background = active ? '#2a2500' : '#222';
+    }
+
     function _filterKey(key) {
       if (key === 'Escape') {
         closeFilterModal();
+        return;
+      }
+      // If Close button is focused
+      if (_filterCloseActive) {
+        if (key === 'Enter') { closeFilterModal(); return; }
+        if (key === 'ArrowDown') {
+          _filterHighlightClose(false);
+          _filterLeftIdx = 0;
+          _filterPanel = 'left';
+          _filterRenderLeft();
+          _filterRenderRight();
+        }
         return;
       }
       if (key === 'ArrowUp') {
@@ -852,6 +876,9 @@
             _filterRightIdx = (!nf._isClearAll && nf.selectedIdx >= 0) ? nf.selectedIdx : 0;
             _filterRenderLeft();
             _filterRenderRight();
+          } else {
+            _filterHighlightClose(true);
+            _filterRenderLeft();
           }
         } else {
           if (_filterRightIdx > 0) { _filterRightIdx--; _filterRenderRight(); }
@@ -1500,6 +1527,28 @@
             (focused.classList && focused.classList.contains('toggle-filters'))) {
           e.preventDefault();
           openFilterModal();
+          return;
+        }
+
+        // "My Account" nav link → go to /account page
+        if (focused.tagName === 'A' && focused.textContent &&
+            focused.textContent.trim() === 'My Account') {
+          e.preventDefault();
+          window.location.href = window.location.origin + '/account';
+          return;
+        }
+
+        // Account avatar/icon dropdown: toggle the dropdown menu
+        if (focused.closest && focused.closest('[class*="account-dropdown"], [class*="user-menu"], [class*="avatar"]')) {
+          focused.click();
+          e.preventDefault();
+          // After dropdown opens, focus the first link inside it
+          setTimeout(function() {
+            var dropdownLinks = document.querySelectorAll('[class*="dropdown-menu"] a, [class*="account-dropdown"] a, [class*="user-menu"] a');
+            if (dropdownLinks.length) {
+              dropdownLinks[0].focus();
+            }
+          }, 200);
           return;
         }
 

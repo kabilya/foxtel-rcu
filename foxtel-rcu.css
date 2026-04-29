@@ -193,7 +193,81 @@ footer {
     display: none !important;
 }
 
-/* Larger video title text for TV readability (+50%) */
+/* --- TV readability: larger fonts for seniors --- */
+
+/* Video title text (+50%) */
 .line-clamp-2 {
     font-size: 1.5em !important;
+}
+
+/* "See All" links */
+.foxtel-sbb a[href*="see_all"],
+.foxtel-sbb a[href*="see-all"],
+.foxtel-sbb a[class*="see-all"],
+.foxtel-sbb a[class*="seeAll"] {
+    font-size: 1.4em !important;
+}
+
+/* Category / section headings */
+.foxtel-sbb .category-title {
+    font-size: 1.4em !important;
+}
+
+/* Nav bar links (Home, My Account) */
+.foxtel-sbb header a,
+.foxtel-sbb nav a {
+    font-size: 1.2em !important;
+}
+
+/* Filters button */
+.foxtel-sbb .toggle-filters,
+.foxtel-sbb #catalog_filter_button {
+    font-size: 1.3em !important;
+}
+
+/* Search input */
+.foxtel-sbb ds-input,
+.foxtel-sbb input[type="search"],
+.foxtel-sbb input[type="text"] {
+    font-size: 1.2em !important;
+}
+
+/* Video page action buttons (Add to Calendar, Favorites, Share) */
+.foxtel-sbb [class*="program-action"] button,
+.foxtel-sbb [class*="program-action"] a,
+.foxtel-sbb [class*="video-action"] button,
+.foxtel-sbb [class*="video-action"] a {
+    font-size: 1.2em !important;
+}
+
+/* Virtual keyboard: larger keys for TV */
+.foxtel-sbb .sbb-kbd-key {
+    min-width: 64px !important;
+    height: 60px !important;
+    font-size: 26px !important;
+}
+.foxtel-sbb .sbb-kbd-key.sbb-kbd-wide {
+    min-width: 108px !important;
+    font-size: 22px !important;
+}
+.foxtel-sbb .sbb-kbd-key.sbb-kbd-done {
+    min-width: 120px !important;
+    font-size: 22px !important;
+}
+.foxtel-sbb #sbb-kbd-preview {
+    font-size: 32px !important;
+    min-height: 56px !important;
+}
+.foxtel-sbb #sbb-kbd-label {
+    font-size: 20px !important;
+}
+
+/* Bigger video posters: fewer per rail, easier to see */
+.foxtel-sbb .swiper-slide {
+    min-width: 320px !important;
+}
+.foxtel-sbb .swiper-slide img,
+.foxtel-sbb .swiper-slide picture {
+    width: 100% !important;
+    height: auto !important;
 }
