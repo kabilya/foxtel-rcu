@@ -966,11 +966,23 @@
       }
     }
 
+    function hideShareCalendarButtons() {
+      var buttons = document.querySelectorAll('ds-button');
+      for (var i = 0; i < buttons.length; i++) {
+        var txt = buttons[i].textContent.trim().toLowerCase();
+        if (txt === 'share' || txt === 'add to calendar') {
+          buttons[i].style.display = 'none';
+        }
+      }
+    }
+
     setTimeout(collapseNativeFilters, 500);
     setTimeout(hideSeeAllLinks, 500);
+    setTimeout(hideShareCalendarButtons, 500);
     document.addEventListener('turbo:load', function() {
       setTimeout(collapseNativeFilters, 500);
       setTimeout(hideSeeAllLinks, 500);
+      setTimeout(hideShareCalendarButtons, 500);
     });
 
     // --- Volume indicator ---

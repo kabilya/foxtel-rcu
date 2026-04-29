@@ -197,7 +197,9 @@ footer {
 .foxtel-sbb ds-button[data-area="share-button"],
 .foxtel-sbb ds-button[data-area="calendar-button"],
 .foxtel-sbb [data-action*="share-button"],
-.foxtel-sbb [data-action*="calendar"] {
+.foxtel-sbb [data-action*="calendar"],
+.foxtel-sbb ds-button:has(ds-icon[name="share"]),
+.foxtel-sbb ds-button:has(ds-icon[name="calendar-plus"]) {
     display: none !important;
 }
 
