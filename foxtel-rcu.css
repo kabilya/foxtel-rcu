@@ -193,6 +193,14 @@ footer {
     display: none !important;
 }
 
+/* Hide Share, Add to Calendar buttons on video pages (not useful on TV) */
+.foxtel-sbb ds-button[data-area="share-button"],
+.foxtel-sbb ds-button[data-area="calendar-button"],
+.foxtel-sbb [data-action*="share-button"],
+.foxtel-sbb [data-action*="calendar"] {
+    display: none !important;
+}
+
 /* --- TV readability: larger fonts for seniors --- */
 
 /* Video title text (+50%) */
