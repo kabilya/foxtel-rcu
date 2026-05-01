@@ -1756,13 +1756,18 @@
     if (window.location.pathname.indexOf('/sign_in') === -1) return;
     var params = new URLSearchParams(window.location.search);
     var boxSerial = params.get('box');
+    var premises = params.get('premises') || '';
+    var room = params.get('room') || '';
     var testMode = params.get('testmode');
     if (!boxSerial || testMode !== 'true') return;
 
-    console.log('[stb-auto-login] Detected box=' + boxSerial + ', fetching credentials...');
+    console.log('[stb-auto-login] Detected box=' + boxSerial + ' premises=' + premises + ' room=' + room + ', fetching credentials...');
 
+    var relayUrl = STB_AUTH_RELAY + '/api/stb-auth?box=' + encodeURIComponent(boxSerial);
+    if (premises) relayUrl += '&premises=' + encodeURIComponent(premises);
+    if (room) relayUrl += '&room=' + encodeURIComponent(room);
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', STB_AUTH_RELAY + '/api/stb-auth?box=' + encodeURIComponent(boxSerial), true);
+    xhr.open('GET', relayUrl, true);
     xhr.onload = function() {
       if (xhr.status !== 200) {
         console.log('[stb-auto-login] Lookup failed: ' + xhr.status + ' ' + xhr.responseText);
