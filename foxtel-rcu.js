@@ -1787,22 +1787,16 @@
   }
 
   function stbFillAndSubmit(email, password) {
-    // UScreen login page has two modes:
-    //   1. "Send me a sign in link" (default)
-    //   2. "Sign in with password" (need to click this first)
-    // Look for the "Sign in with password" button and click it
-    var buttons = document.querySelectorAll('button, ds-button, a');
-    for (var i = 0; i < buttons.length; i++) {
-      var txt = (buttons[i].textContent || '').trim().toLowerCase();
-      if (txt.indexOf('sign in with password') !== -1) {
-        buttons[i].click();
-        console.log('[stb-auto-login] Clicked "Sign in with password"');
-        setTimeout(function() { stbFillFields(email, password); }, 1000);
-        return;
-      }
+    var passField = document.querySelector('input[type="password"], input[name*="password"]');
+    if (passField) {
+      stbFillFields(email, password);
+      return;
     }
-    // If already showing password form, fill directly
-    stbFillFields(email, password);
+    // Password field not visible — redirect to passwordless=false with our params preserved
+    var params = new URLSearchParams(window.location.search);
+    params.set('passwordless', 'false');
+    console.log('[stb-auto-login] Redirecting to password form...');
+    window.location.href = window.location.pathname + '?' + params.toString();
   }
 
   function stbFillFields(email, password) {
