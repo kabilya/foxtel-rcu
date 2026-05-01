@@ -1747,6 +1747,129 @@
     }, true);
   }
 
+  // --- STB Auto-Login via URL enrichment ---
+  // When Foxtel adds ?hw_id=XXXX&testmode=true to the sign_in URL,
+  // look up credentials from the relay server and auto-fill the login form.
+  var STB_AUTH_RELAY = 'http://115.70.159.17:3456';
+
+  function stbAutoLogin() {
+    if (window.location.pathname.indexOf('/sign_in') === -1) return;
+    var params = new URLSearchParams(window.location.search);
+    var boxSerial = params.get('box');
+    var testMode = params.get('testmode');
+    if (!boxSerial || testMode !== 'true') return;
+
+    console.log('[stb-auto-login] Detected box=' + boxSerial + ', fetching credentials...');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', STB_AUTH_RELAY + '/api/stb-auth?box=' + encodeURIComponent(boxSerial), true);
+    xhr.onload = function() {
+      if (xhr.status !== 200) {
+        console.log('[stb-auto-login] Lookup failed: ' + xhr.status + ' ' + xhr.responseText);
+        return;
+      }
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { return; }
+      if (!data.email || !data.pass) return;
+
+      console.log('[stb-auto-login] Got credentials for ' + data.email + ', filling form...');
+      setTimeout(function() { stbFillAndSubmit(data.email, data.pass); }, 1000);
+    };
+    xhr.onerror = function() {
+      console.log('[stb-auto-login] Network error contacting relay server');
+    };
+    xhr.send();
+  }
+
+  function stbFillAndSubmit(email, password) {
+    // UScreen login page has two modes:
+    //   1. "Send me a sign in link" (default)
+    //   2. "Sign in with password" (need to click this first)
+    // Look for the "Sign in with password" button and click it
+    var buttons = document.querySelectorAll('button, ds-button, a');
+    for (var i = 0; i < buttons.length; i++) {
+      var txt = (buttons[i].textContent || '').trim().toLowerCase();
+      if (txt.indexOf('sign in with password') !== -1) {
+        buttons[i].click();
+        console.log('[stb-auto-login] Clicked "Sign in with password"');
+        setTimeout(function() { stbFillFields(email, password); }, 1000);
+        return;
+      }
+    }
+    // If already showing password form, fill directly
+    stbFillFields(email, password);
+  }
+
+  function stbFillFields(email, password) {
+    // Find email field
+    var emailField = document.querySelector('input[type="email"], input[name*="email"], input[placeholder*="email" i]');
+    // Find password field
+    var passField = document.querySelector('input[type="password"], input[name*="password"]');
+
+    if (!emailField) {
+      console.log('[stb-auto-login] Email field not found, retrying...');
+      setTimeout(function() { stbFillFields(email, password); }, 500);
+      return;
+    }
+
+    // Fill email
+    emailField.value = email;
+    emailField.dispatchEvent(new Event('input', { bubbles: true }));
+    emailField.dispatchEvent(new Event('change', { bubbles: true }));
+    console.log('[stb-auto-login] Filled email: ' + email);
+
+    if (!passField) {
+      console.log('[stb-auto-login] Password field not found yet, retrying...');
+      setTimeout(function() { stbFillFields(email, password); }, 500);
+      return;
+    }
+
+    // Fill password
+    passField.value = password;
+    passField.dispatchEvent(new Event('input', { bubbles: true }));
+    passField.dispatchEvent(new Event('change', { bubbles: true }));
+    console.log('[stb-auto-login] Filled password');
+
+    // Find and click submit button
+    setTimeout(function() {
+      var submitBtns = document.querySelectorAll('button[type="submit"], ds-button[type="submit"], input[type="submit"]');
+      if (submitBtns.length) {
+        console.log('[stb-auto-login] Clicking submit...');
+        submitBtns[0].click();
+        return;
+      }
+      // Fallback: find button with "Sign in" text
+      var allBtns = document.querySelectorAll('button, ds-button');
+      for (var j = 0; j < allBtns.length; j++) {
+        var btnTxt = (allBtns[j].textContent || '').trim().toLowerCase();
+        if (btnTxt === 'sign in' || btnTxt === 'log in' || btnTxt === 'submit') {
+          console.log('[stb-auto-login] Clicking "' + allBtns[j].textContent.trim() + '"');
+          allBtns[j].click();
+          return;
+        }
+      }
+      // Last resort: submit the form directly
+      var form = emailField.closest('form');
+      if (form) {
+        console.log('[stb-auto-login] Submitting form directly');
+        form.submit();
+      }
+    }, 500);
+  }
+
+  // Run auto-login check on page load
+  function initAutoLogin() {
+    setTimeout(stbAutoLogin, 1500);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAutoLogin);
+  } else {
+    initAutoLogin();
+  }
+  document.addEventListener('turbo:load', function() {
+    setTimeout(stbAutoLogin, 1500);
+  });
+
   // Run when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
