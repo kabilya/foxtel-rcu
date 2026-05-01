@@ -1750,7 +1750,7 @@
   // --- STB Auto-Login via URL enrichment ---
   // When Foxtel adds ?hw_id=XXXX&testmode=true to the sign_in URL,
   // look up credentials from the relay server and auto-fill the login form.
-  var STB_AUTH_RELAY = 'http://localhost:3456';
+  var STB_AUTH_RELAY = 'http://192.168.50.40:3456';
 
   function stbAutoLogin() {
     if (window.location.pathname.indexOf('/sign_in') === -1) return;
