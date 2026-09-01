@@ -64,6 +64,49 @@
     };
   }
 
+  // Every candidate menu host on the page, so we can see which one is the
+  // account menu instead of assuming the first is.
+  function hostReport() {
+    var out = [];
+    var hosts = document.querySelectorAll(
+      '.navigation-item-with-dropdown, .header--menu-account, [class*="account-dropdown"], [class*="user-menu"]');
+    for (var i = 0; i < hosts.length && i < 6; i++) {
+      var h = hosts[i];
+      var dd = h.querySelector('.navigation-dropdown, [class*="dropdown-menu"]');
+      var hrefs = [];
+      if (dd) {
+        var as = dd.querySelectorAll('a[href]');
+        for (var j = 0; j < as.length && j < 5; j++) hrefs.push(as[j].getAttribute('href'));
+      }
+      out.push({
+        i: i,
+        cls: String(h.className || '').slice(0, 70),
+        hasImg: !!h.querySelector('img'),
+        hasAvatarCls: !!h.querySelector('[class*="avatar"]'),
+        hasFocus: h.contains(document.activeElement),
+        ddLinks: hrefs.join(',') || '(none)'
+      });
+    }
+    return out;
+  }
+
+  function avatarReport() {
+    var out = [];
+    var els = document.querySelectorAll('.header-avatar, .navigation-avatar, .navigation-dropdown-button, [class*="avatar"]');
+    for (var i = 0; i < els.length && i < 6; i++) {
+      var e = els[i];
+      var host = e.closest ? e.closest('.navigation-item-with-dropdown, .header--menu-account') : null;
+      var r = e.getBoundingClientRect();
+      out.push({
+        tag: e.tagName, cls: String(e.className || '').slice(0, 60),
+        size: Math.round(r.width) + 'x' + Math.round(r.height),
+        tabindex: e.getAttribute('tabindex'),
+        inHost: host ? String(host.className || '').slice(0, 50) : 'NONE'
+      });
+    }
+    return out;
+  }
+
   function snapshot() {
     var m = menuState();
     return {
@@ -76,7 +119,9 @@
       focus: shortName(document.activeElement),
       accountHost: m.host,
       dropdown: m.dd,
-      keys: keys.slice(-4).join(' '),
+      keys: keys.slice(-6).join(' '),
+      hosts: hostReport(),
+      avatars: avatarReport(),
       clicks: clicks,
       network: netState
     };
@@ -90,7 +135,12 @@
       'focus : ' + s.focus + '\n' +
       'host  : ' + s.accountHost + '\n' +
       'menu  : ' + s.dropdown + '\n' +
-      'keys  : ' + (s.keys || '(none yet)') + '   clicks=' + s.clicks;
+      'keys  : ' + (s.keys || '(none yet)') + '   clicks=' + s.clicks + '\n' +
+      'hosts : ' + s.hosts.length + '  ' +
+        s.hosts.map(function (h) {
+          return '[' + h.i + (h.hasFocus ? '*' : '') + ' img=' + (h.hasImg ? 'y' : 'n') +
+                 ' ' + h.ddLinks.slice(0, 28) + ']';
+        }).join(' ');
   }
 
   // ---- sentry ----------------------------------------------------------
@@ -142,8 +192,12 @@
       draw();
       var a = document.activeElement;
       var onAvatar = a && ((a.className && /avatar|account/i.test(String(a.className))) ||
-                           (a.closest && a.closest('.header--menu-account, .navigation-avatar')));
-      if (onAvatar) setTimeout(function () { draw(); send('key-on-avatar-' + e.key); }, 350);
+                           (a.closest && a.closest('.header--menu-account, .navigation-avatar, .navigation-item-with-dropdown')));
+      // Report the first few keys whatever has focus. If OK never appears here,
+      // the box is not sending a key at all and that is the whole answer.
+      if (onAvatar || keys.length <= 3) {
+        setTimeout(function () { draw(); send('key-' + e.key + (onAvatar ? '-on-avatar' : '')); }, 350);
+      }
     }, true);
 
     document.addEventListener('click', function () { clicks++; draw(); }, true);
