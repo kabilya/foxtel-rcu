@@ -1069,35 +1069,15 @@
       }
     }
 
-    // Each box signs in automatically, by room. A resident who signs out would
-    // lock the television out of the service. The stylesheet hides the three
-    // known Sign out links; this catches any the theme renders differently.
-    function hideSignOutLinks() {
-      if (!isSBB) return;
-      var links = document.querySelectorAll('a[href*="sign_out"], a[href*="log_out"], a[href*="logout"]');
-      for (var i = 0; i < links.length; i++) {
-        links[i].style.display = 'none';
-      }
-      var all = document.querySelectorAll('a, button, ds-button');
-      for (var j = 0; j < all.length; j++) {
-        var t = all[j].textContent.trim().toLowerCase();
-        if (t === 'sign out' || t === 'log out' || t === 'logout') {
-          all[j].style.display = 'none';
-        }
-      }
-    }
-
     setTimeout(collapseNativeFilters, 500);
     setTimeout(hideSeeAllLinks, 500);
     setTimeout(hideShareCalendarButtons, 500);
-    setTimeout(hideSignOutLinks, 500);
     document.addEventListener('turbo:load', function() {
       _filterTries = 0; // fresh page, fresh retry budget
       if (isSBB) makeAvatarFocusable();
       setTimeout(collapseNativeFilters, 500);
       setTimeout(hideSeeAllLinks, 500);
       setTimeout(hideShareCalendarButtons, 500);
-      setTimeout(hideSignOutLinks, 500);
     });
 
     // --- Volume indicator ---

@@ -311,15 +311,15 @@ a[class*="seeAll"] {
     display: none !important;
 }
 
-/* --- No logout on the set top box --- */
-/* Each box signs in automatically, by room. A resident who signs out would
-   lock the television out of the service and need staff to fix it.
-   Scoped to the set top box so desktop admin can still sign out. */
-.foxtel-sbb a[href="/sign_out"],
-.foxtel-sbb a[href$="/sign_out"],
-.foxtel-sbb .header-menu-sign-out-link,
-.foxtel-sbb .header-mobile-sign-out-button {
-    display: none !important;
+/* --- Sign out on the set top box --- */
+/* Kept visible by owner decision, 1 Sep 2026. The avatar menu holds only this
+   item, so hiding it left the menu empty and the OK key appeared to do
+   nothing. Give the link room to be read and selected from a couch. */
+.foxtel-sbb .navigation-dropdown-link,
+.foxtel-sbb a[href$="/sign_out"] {
+    font-size: 1.2em !important;
+    padding: 12px 16px !important;
+    display: block !important;
 }
 
 /* --- Account menu opened by remote --- */
