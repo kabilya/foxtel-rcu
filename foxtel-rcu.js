@@ -21,6 +21,22 @@
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
   var isSBB = /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent);
 
+  // The account avatar opens the only menu that holds "My Account". In the
+  // collapsed header the theme renders it as a bare <li> with an <img> inside:
+  // no anchor, no button, no tabindex, so no key can ever reach it. Give it
+  // what it needs to be a focus target.
+  function makeAvatarFocusable() {
+    var hosts = document.querySelectorAll(
+      '.navigation-avatar, .header-avatar, .header--menu-account, .navigation-dropdown-button');
+    for (var i = 0; i < hosts.length; i++) {
+      var el = hosts[i];
+      if (el.tagName === 'A' || el.tagName === 'BUTTON') continue; // already focusable
+      if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+      if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+      if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'Account menu');
+    }
+  }
+
   function init() {
     if (isSBB) {
       document.body.classList.add('foxtel-sbb');
@@ -29,6 +45,8 @@
       document.querySelectorAll('video').forEach(function(v) {
         if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
       });
+
+      makeAvatarFocusable();
 
       // Hint to the SBB that text inputs should trigger the soft keyboard
       document.querySelectorAll('input[type="email"], input[type="text"], input[type="password"], input:not([type])').forEach(function(inp) {
@@ -56,7 +74,13 @@
       'ds-select',
       '[role="button"]:not([disabled])',
       '[role="switch"]',
-      '[onclick]:not([disabled])'
+      '[onclick]:not([disabled])',
+      // Account avatar. The theme renders it as an anchor in the wide header
+      // but as a bare <li><img> in the collapsed header, where nothing above
+      // would match it.
+      '.header-avatar',
+      '.navigation-avatar',
+      '.navigation-dropdown-button'
     ].join(', ');
 
     function getVisibleFocusables() {
@@ -118,6 +142,15 @@
         }
         // Never dedup category title links
         if (el2.classList && el2.classList.contains('category-title')) {
+          deduped.push(el2);
+          continue;
+        }
+        // Never dedup header or nav links. "Home" and "My Account" both point
+        // at /catalog, so the same-href rule below deleted one of them from
+        // remote navigation entirely. Dedup exists for carousel cards that
+        // render an image and a caption as two links to one program, and that
+        // never happens in the header.
+        if (el2.closest && el2.closest('header, nav, .header-navigation, .navigation-list')) {
           deduped.push(el2);
           continue;
         }
@@ -1009,6 +1042,7 @@
     setTimeout(hideSignOutLinks, 500);
     document.addEventListener('turbo:load', function() {
       _filterTries = 0; // fresh page, fresh retry budget
+      if (isSBB) makeAvatarFocusable();
       setTimeout(collapseNativeFilters, 500);
       setTimeout(hideSeeAllLinks, 500);
       setTimeout(hideShareCalendarButtons, 500);
@@ -1635,15 +1669,35 @@
           return;
         }
 
-        // Account avatar/icon dropdown: toggle the dropdown menu
-        if (focused.closest && focused.closest('[class*="account-dropdown"], [class*="user-menu"], [class*="avatar"]')) {
-          focused.click();
+        // Account avatar: open the dropdown, then step into it.
+        var accHost = focused.closest &&
+          focused.closest('.navigation-item-with-dropdown, .header--menu-account, .navigation-avatar, [class*="account-dropdown"], [class*="user-menu"]');
+        var isAvatar = accHost ||
+          (focused.className && /avatar/i.test(String(focused.className)));
+        if (isAvatar) {
           e.preventDefault();
-          // After dropdown opens, focus the first link inside it
+          var accLi = accHost || (focused.closest && focused.closest('li')) || focused.parentElement;
+          // Let the theme handle it when it can. On the bare <li> version there
+          // is no handler, so drive the theme's own open class ourselves.
+          focused.click();
+          if (accLi && accLi.classList && !accLi.classList.contains('navigation-item-opened')) {
+            accLi.classList.add('navigation-item-opened');
+          }
+          // Focus the first VISIBLE item. Sign out is hidden, so this skips it.
+          // Match the dropdown container only. A looser selector such as
+          // [class*="dropdown"] a also matches the avatar itself, because the
+          // parent <li> is class "navigation-item-with-dropdown".
           setTimeout(function() {
-            var dropdownLinks = document.querySelectorAll('[class*="dropdown-menu"] a, [class*="account-dropdown"] a, [class*="user-menu"] a');
-            if (dropdownLinks.length) {
-              dropdownLinks[0].focus();
+            var scope = accLi || document;
+            var items = scope.querySelectorAll(
+              '.navigation-dropdown a, .navigation-dropdown-list a, ' +
+              '[class*="dropdown-menu"] a, [class*="account-dropdown"] a');
+            for (var di = 0; di < items.length; di++) {
+              if (items[di] === focused) continue;
+              if (items[di].closest &&
+                  items[di].closest('.navigation-dropdown-button, .header-avatar')) continue;
+              var r = items[di].getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) { items[di].focus(); return; }
             }
           }, 200);
           return;
