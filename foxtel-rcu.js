@@ -37,6 +37,11 @@
     }
   }
 
+  function closeAccountMenu() {
+    var open = document.querySelectorAll('.rcu-menu-open');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('rcu-menu-open');
+  }
+
   function init() {
     if (isSBB) {
       document.body.classList.add('foxtel-sbb');
@@ -1677,11 +1682,18 @@
         if (isAvatar) {
           e.preventDefault();
           var accLi = accHost || (focused.closest && focused.closest('li')) || focused.parentElement;
-          // Let the theme handle it when it can. On the bare <li> version there
-          // is no handler, so drive the theme's own open class ourselves.
-          focused.click();
-          if (accLi && accLi.classList && !accLi.classList.contains('navigation-item-opened')) {
-            accLi.classList.add('navigation-item-opened');
+          // The theme reveals this menu on :hover only (theme.css:533), and a
+          // remote cannot hover. Its .navigation-item-opened class is no help
+          // either: that rule sets display:none (theme.css:522). So drive our
+          // own class and force the menu visible from foxtel-rcu.css.
+          focused.click(); // harmless, and lets the theme act if it ever does
+          if (accLi && accLi.classList) {
+            if (accLi.classList.contains('rcu-menu-open')) {
+              accLi.classList.remove('rcu-menu-open'); // OK again closes it
+              return;
+            }
+            closeAccountMenu();
+            accLi.classList.add('rcu-menu-open');
           }
           // Focus the first VISIBLE item. Sign out is hidden, so this skips it.
           // Match the dropdown container only. A looser selector such as
@@ -1757,6 +1769,16 @@
           var faqContent = openFaq.querySelector('.faq-content');
           if (faqContent) faqContent.style.height = 0;
           openFaq.classList.remove('faq-opened');
+          e.preventDefault();
+          return;
+        }
+        // Back closes the account menu first, and returns focus to the avatar.
+        var openAcc = document.querySelector('.rcu-menu-open');
+        if (openAcc) {
+          closeAccountMenu();
+          var trigger = openAcc.querySelector('.header-avatar, .navigation-dropdown-button') ||
+                        (openAcc.classList.contains('navigation-avatar') ? openAcc : null);
+          if (trigger) trigger.focus();
           e.preventDefault();
           return;
         }
@@ -1852,6 +1874,12 @@
         }
       }
     }, true); // capture phase — intercept before shadow DOM
+
+    // Close the account menu when focus moves out of it.
+    document.addEventListener('focusin', function(ev) {
+      var open = document.querySelector('.rcu-menu-open');
+      if (open && !open.contains(ev.target)) closeAccountMenu();
+    }, true);
 
     // Prevent keyup default for navigation keys (also capture phase)
     document.addEventListener('keyup', function(e) {

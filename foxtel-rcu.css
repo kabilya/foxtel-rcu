@@ -321,3 +321,16 @@ a[class*="seeAll"] {
 .foxtel-sbb .header-mobile-sign-out-button {
     display: none !important;
 }
+
+/* --- Account menu opened by remote --- */
+/* The theme reveals this menu on :hover only, and a remote cannot hover.
+   Its own .navigation-item-opened class sets display:none, so it cannot be
+   used either. We drive our own class from the OK key instead. */
+.rcu-menu-open .navigation-dropdown {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+.rcu-menu-open .navigation-dropdown-list {
+    max-height: none !important;
+}
