@@ -18,6 +18,11 @@
 (function() {
   'use strict';
 
+  // Bump on every deploy. The temporary diagnostic reports this, so we can
+  // tell whether a box is actually running the build we think it is.
+  var RCU_VERSION = '2026-09-01-a';
+  try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
+
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
   var isSBB = /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent);
 
@@ -37,9 +42,50 @@
     }
   }
 
+  var DROPDOWN_SEL = '.navigation-dropdown, [class*="dropdown-menu"], [class*="account-dropdown"]';
+  var FORCED = ['display', 'visibility', 'opacity', 'pointer-events'];
+
+  function findDropdown(host) {
+    return host && host.querySelector ? host.querySelector(DROPDOWN_SEL) : null;
+  }
+
+  // Resolve the account item that actually owns a menu.
+  // The theme swaps avatars at 1024px: the wide header uses
+  // li.header--menu-account, which contains the dropdown, while the collapsed
+  // header uses li.navigation-avatar, a decorative image with no menu at all.
+  // Pressing OK on the decorative one must still open the real menu.
+  function resolveAccountHost(el) {
+    if (el && el.closest) {
+      var near = el.closest('.navigation-item-with-dropdown, .header--menu-account, [class*="account-dropdown"], [class*="user-menu"]');
+      if (near && findDropdown(near)) return near;
+    }
+    var hosts = document.querySelectorAll('.header--menu-account, .navigation-item-with-dropdown, [class*="account-dropdown"], [class*="user-menu"]');
+    for (var i = 0; i < hosts.length; i++) {
+      if (findDropdown(hosts[i])) return hosts[i];
+    }
+    return null;
+  }
+
+  // Force the menu open with inline !important. A class alone depends on our
+  // stylesheet being current on the box; inline styles do not.
+  function openAccountMenu(host) {
+    var dd = findDropdown(host);
+    if (!dd) return null;
+    host.classList.add('rcu-menu-open');
+    dd.style.setProperty('display', 'block', 'important');
+    dd.style.setProperty('visibility', 'visible', 'important');
+    dd.style.setProperty('opacity', '1', 'important');
+    dd.style.setProperty('pointer-events', 'auto', 'important');
+    return dd;
+  }
+
   function closeAccountMenu() {
     var open = document.querySelectorAll('.rcu-menu-open');
-    for (var i = 0; i < open.length; i++) open[i].classList.remove('rcu-menu-open');
+    for (var i = 0; i < open.length; i++) {
+      open[i].classList.remove('rcu-menu-open');
+      var dd = findDropdown(open[i]);
+      if (dd) for (var j = 0; j < FORCED.length; j++) dd.style.removeProperty(FORCED[j]);
+    }
   }
 
   function init() {
@@ -1681,26 +1727,24 @@
           (focused.className && /avatar/i.test(String(focused.className)));
         if (isAvatar) {
           e.preventDefault();
-          var accLi = accHost || (focused.closest && focused.closest('li')) || focused.parentElement;
           // The theme reveals this menu on :hover only (theme.css:533), and a
           // remote cannot hover. Its .navigation-item-opened class is no help
-          // either: that rule sets display:none (theme.css:522). So drive our
-          // own class and force the menu visible from foxtel-rcu.css.
-          focused.click(); // harmless, and lets the theme act if it ever does
-          if (accLi && accLi.classList) {
-            if (accLi.classList.contains('rcu-menu-open')) {
-              accLi.classList.remove('rcu-menu-open'); // OK again closes it
-              return;
-            }
-            closeAccountMenu();
-            accLi.classList.add('rcu-menu-open');
+          // either: that rule sets display:none (theme.css:522).
+          var accLi = resolveAccountHost(focused);
+          if (!accLi) { focused.click(); return; }
+          if (accLi.classList.contains('rcu-menu-open')) {
+            closeAccountMenu(); // OK again closes it
+            return;
           }
+          closeAccountMenu();
+          openAccountMenu(accLi);
+          window.__rcuAccountMenu = accLi; // read by the temporary diagnostic
           // Focus the first VISIBLE item. Sign out is hidden, so this skips it.
           // Match the dropdown container only. A looser selector such as
           // [class*="dropdown"] a also matches the avatar itself, because the
           // parent <li> is class "navigation-item-with-dropdown".
           setTimeout(function() {
-            var scope = accLi || document;
+            var scope = accLi;
             var items = scope.querySelectorAll(
               '.navigation-dropdown a, .navigation-dropdown-list a, ' +
               '[class*="dropdown-menu"] a, [class*="account-dropdown"] a');
