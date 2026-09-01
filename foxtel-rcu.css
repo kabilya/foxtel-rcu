@@ -282,3 +282,42 @@ a[class*="seeAll"] {
     width: 100% !important;
     height: auto !important;
 }
+
+/* --- Paused indicator --- */
+/* Pause holds the picture in fullscreen. This marks the state so a paused
+   video is not mistaken for a frozen one. */
+#sbb-paused-indicator {
+    display: none;
+    position: fixed;
+    top: 8%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.82);
+    color: #FFB800;
+    padding: 14px 34px;
+    border-radius: 10px;
+    font-family: sans-serif;
+    font-size: 34px;
+    letter-spacing: 2px;
+    z-index: 100000;
+    pointer-events: none;
+}
+
+/* --- Redundant Home header --- */
+/* The logo links to the home page and the "Home" nav link goes to the same
+   place. Two controls, one destination. Keep the text label: it is clearer
+   than an icon for a senior audience. */
+.foxtel-sbb .header-logo {
+    display: none !important;
+}
+
+/* --- No logout on the set top box --- */
+/* Each box signs in automatically, by room. A resident who signs out would
+   lock the television out of the service and need staff to fix it.
+   Scoped to the set top box so desktop admin can still sign out. */
+.foxtel-sbb a[href="/sign_out"],
+.foxtel-sbb a[href$="/sign_out"],
+.foxtel-sbb .header-menu-sign-out-link,
+.foxtel-sbb .header-mobile-sign-out-button {
+    display: none !important;
+}

@@ -940,10 +940,19 @@
     // On catalog pages: hide the native ds-select filter grid so it doesn't
     // interfere with arrow-key navigation. Our custom modal still works because
     // _filterRead() queries ds-select-option from the DOM regardless of visibility.
+    var _filterTries = 0;
     function collapseNativeFilters() {
       if (window.location.pathname.indexOf('/catalog') !== 0) return;
       var selects = document.querySelectorAll('ds-select');
-      if (!selects.length) { setTimeout(collapseNativeFilters, 500); return; }
+      if (!selects.length) {
+        // Bounded retry: 20 tries over 10 seconds, then give up. The old
+        // version retried every 500 ms for the life of the session, which
+        // kept a timer running on pages that have no filters at all.
+        if (++_filterTries > 20) return;
+        setTimeout(collapseNativeFilters, 500);
+        return;
+      }
+      _filterTries = 0;
       // Walk up from the first ds-select to find the lowest ancestor that
       // contains MORE than one ds-select — that's the filter grid wrapper,
       // not the toggle-button row which lives separately.
@@ -976,13 +985,34 @@
       }
     }
 
+    // Each box signs in automatically, by room. A resident who signs out would
+    // lock the television out of the service. The stylesheet hides the three
+    // known Sign out links; this catches any the theme renders differently.
+    function hideSignOutLinks() {
+      if (!isSBB) return;
+      var links = document.querySelectorAll('a[href*="sign_out"], a[href*="log_out"], a[href*="logout"]');
+      for (var i = 0; i < links.length; i++) {
+        links[i].style.display = 'none';
+      }
+      var all = document.querySelectorAll('a, button, ds-button');
+      for (var j = 0; j < all.length; j++) {
+        var t = all[j].textContent.trim().toLowerCase();
+        if (t === 'sign out' || t === 'log out' || t === 'logout') {
+          all[j].style.display = 'none';
+        }
+      }
+    }
+
     setTimeout(collapseNativeFilters, 500);
     setTimeout(hideSeeAllLinks, 500);
     setTimeout(hideShareCalendarButtons, 500);
+    setTimeout(hideSignOutLinks, 500);
     document.addEventListener('turbo:load', function() {
+      _filterTries = 0; // fresh page, fresh retry budget
       setTimeout(collapseNativeFilters, 500);
       setTimeout(hideSeeAllLinks, 500);
       setTimeout(hideShareCalendarButtons, 500);
+      setTimeout(hideSignOutLinks, 500);
     });
 
     // --- Volume indicator ---
@@ -1001,6 +1031,33 @@
       if (_volTimer) clearTimeout(_volTimer);
       _volTimer = setTimeout(function() { el.style.display = 'none'; }, 1500);
     }
+
+    // --- Paused indicator ---
+    // Pause must hold the picture in fullscreen. Without an on-screen marker
+    // a paused fullscreen video is indistinguishable from a frozen one.
+    function pausedIndicator(show) {
+      var el = document.getElementById('sbb-paused-indicator');
+      if (!show) {
+        if (el) el.style.display = 'none';
+        return;
+      }
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'sbb-paused-indicator';
+        el.textContent = 'Paused';
+        document.body.appendChild(el);
+      }
+      el.style.display = 'block';
+    }
+
+    // Media events do not bubble, but the capture phase still reaches document,
+    // so one pair of listeners covers every video on the page.
+    document.addEventListener('pause', function() {
+      if (isInFullscreen()) pausedIndicator(true);
+    }, true);
+    document.addEventListener('play', function() {
+      pausedIndicator(false);
+    }, true);
 
     // --- CSS Fullscreen ---
     // The Fullscreen API requires a user gesture and fails in setTimeout
@@ -1026,6 +1083,7 @@
     function exitFullscreen() {
       if (!_cssFullscreen && !document.fullscreenElement && !document.webkitFullscreenElement) return;
       _cssFullscreen = false;
+      pausedIndicator(false);
       var vid = document.querySelector('.rcu-fullscreen');
       if (vid) vid.classList.remove('rcu-fullscreen');
       document.body.classList.remove('rcu-fullscreen-active');
@@ -1122,15 +1180,10 @@
         var link = nextSection.querySelector('a[href]');
         if (link) { window.location.href = link.href; return; }
       }
-      // Fallback: find any program link below the player that isn't the current page
-      var links = document.querySelectorAll('a[href*="/programs/"]');
-      var current = window.location.pathname;
-      for (var i = 0; i < links.length; i++) {
-        if (links[i].pathname !== current) {
-          window.location.href = links[i].href;
-          return;
-        }
-      }
+      // No explicit "up next" section: stop here.
+      // The old fallback jumped to the first /programs/ link found anywhere on
+      // the page. On a collection screen that link is arbitrary, which is one
+      // half of the endless auto-play loop Foxtel reported.
     }
 
     function setupAutoplayNext() {
@@ -1140,15 +1193,35 @@
       vid.addEventListener('ended', onVideoEnded);
     }
 
+    // --- Auto-play guard ---
+    // Browse screens must never start playback. Without this, returning to a
+    // collection screen started whatever player sat on it, which navigated
+    // again and repeated without end (Foxtel: "Playlist Exit Triggering
+    // Infinite Auto-Play Loop"). Deny-list, not allow-list: an unknown page
+    // type should fail closed only for the screens we know are browse screens.
+    var BROWSE_PATH = /^\/(catalog|collections?|playlists?|series|categories|search|library|account|profile|sign_in|sign_up|sign_out|orders|pages|checkout)(\/|$)/i;
+    var _autoPlayedFor = null;
+
+    function isPlayablePage() {
+      var path = window.location.pathname;
+      if (path === '/' || path === '') return false;
+      return !BROWSE_PATH.test(path);
+    }
+
     // --- Auto-play video on page load ---
     // SBB's embedded Chromium allows fullscreen without user gesture.
     // Desktop Chrome does not, so only auto-fullscreen on SBB.
     function autoPlayVideo() {
+      if (!isPlayablePage()) return;
+      // Once per URL. Retries and repeated turbo:load events must not re-fire.
+      var here = window.location.href;
+      if (_autoPlayedFor === here) return;
       var vp = document.querySelector('video-player');
       if (!vp) return;
       var vid = vp.querySelector('video');
       if (!vid) return;
       if (!vid.paused) return;
+      _autoPlayedFor = here;
       vid.muted = false;
       vid.volume = 1;
       // If HLS hasn't loaded on SBB, trigger fallback first
@@ -1498,10 +1571,10 @@
             // Unmute immediately while we still have user gesture context
             vid.muted = false;
             vid.volume = 1;
-            // If already playing, toggle pause and exit fullscreen
+            // If already playing, pause in place. Stay in fullscreen: the
+            // paused indicator marks the state, and Back still exits.
             if (!vid.paused) {
               vid.pause();
-              exitFullscreen();
               return;
             }
             // Enter fullscreen on the video element
@@ -1698,8 +1771,8 @@
               video.play();
               enterFullscreen(video);
             } else {
+              // Pause holds fullscreen. Only Back and Stop leave it.
               video.pause();
-              exitFullscreen();
             }
             e.preventDefault(); break;
           case 'MediaStop':
@@ -1710,8 +1783,9 @@
             // Only pause if not typing in an input
             var pTag = document.activeElement ? document.activeElement.tagName : '';
             if (pTag !== 'INPUT' && pTag !== 'TEXTAREA') {
+              // Pause holds fullscreen. Dropping out of fullscreen here is
+              // what produced Foxtel's "quarter-screen view" on Pause.
               video.pause();
-              exitFullscreen();
               e.preventDefault();
             }
             break;
