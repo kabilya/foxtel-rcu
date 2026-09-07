@@ -17,33 +17,47 @@
 .foxtel-sbb ds-select:focus,
 .foxtel-sbb ds-select-option:focus,
 .foxtel-sbb [onclick]:focus {
-    outline: 6px solid #FFB800 !important;
-    outline-offset: 4px;
-    border-radius: 4px;
+    outline: 8px solid #FF9500 !important;
+    outline-offset: 6px;
+    border-radius: 8px;
     z-index: 9999;
     position: relative;
+    /* Dark ring first, so the orange still reads on a pale poster */
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.55),
+                0 18px 44px rgba(0, 0, 0, 0.45) !important;
 }
 
-/* Keyboard-only focus ring for desktop testing */
-a:focus-visible,
-button:focus-visible,
-[tabindex="0"]:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-ds-button:focus-visible,
-ds-input:focus-visible {
-    outline: 6px solid #FFB800;
-    outline-offset: 4px;
+/* Keyboard-only focus ring, set top box only. Unscoped it put an 8px orange
+   outline on the ordinary website for every keyboard user. */
+.foxtel-sbb a:focus-visible,
+.foxtel-sbb button:focus-visible,
+.foxtel-sbb [tabindex="0"]:focus-visible,
+.foxtel-sbb input:focus-visible,
+.foxtel-sbb select:focus-visible,
+.foxtel-sbb textarea:focus-visible,
+.foxtel-sbb ds-button:focus-visible,
+.foxtel-sbb ds-input:focus-visible {
+    outline: 8px solid #FF9500;
+    outline-offset: 6px;
 }
 
-/* Scale up focused cards/slides for TV visibility */
-.foxtel-sbb .swiper-slide:focus-within,
+/* Item 5. The selected card lifts out of the row.
+   The rail is clipped by an .overflow-hidden ancestor. Making that visible
+   would let off-screen slides spill sideways, so instead we pad the grid and
+   let the card grow into the padding. */
+.foxtel-sbb .category-carousel__grid,
+.foxtel-sbb ds-swiper::part(wrapper) {
+    padding-top: 30px !important;
+    padding-bottom: 30px !important;
+}
+.foxtel-sbb .category-carousel__slide:focus-within,
 .foxtel-sbb .tiled-gallery-item:focus-within,
 .foxtel-sbb .pricing-card:focus-within,
 .foxtel-sbb .social-feed-item:focus-within {
-    transform: scale(1.03);
+    transform: scale(1.09);
     transition: transform 0.15s ease;
+    z-index: 60;
+    position: relative;
 }
 
 /* SBB safe area margins (5% each edge per Foxtel spec) */
@@ -188,34 +202,40 @@ body.rcu-fullscreen-active .footer {
     visibility: hidden !important;
 }
 
-/* Hide the site footer on SBB (not needed on TV) */
-footer {
+/* Hide the site footer on the set top box only.
+   This was unscoped and hid the footer for every website visitor. */
+.foxtel-sbb footer {
     display: none !important;
 }
 
-/* Hide Share, Add to Calendar buttons on video pages */
-ds-button[data-area="share-button"],
-ds-button[data-area="calendar-button"],
-[data-action*="share-button"],
-ds-button:has(ds-icon[name="share"]),
-ds-button:has(ds-icon[name="calendar-plus"]),
-#program_buttons_add_to_calendars {
+/* Hide Share, Add to Calendar buttons on video pages. Set top box only. */
+.foxtel-sbb ds-button[data-area="share-button"],
+.foxtel-sbb ds-button[data-area="calendar-button"],
+.foxtel-sbb [data-action*="share-button"],
+.foxtel-sbb ds-button:has(ds-icon[name="share"]),
+.foxtel-sbb ds-button:has(ds-icon[name="calendar-plus"]),
+.foxtel-sbb #program_buttons_add_to_calendars {
     display: none !important;
 }
 
 /* --- TV readability: larger fonts for seniors --- */
 
-/* Video title text (+50%) */
-.line-clamp-2 {
-    font-size: 1.5em !important;
+/* Item 6. Video title under each card.
+   .line-clamp-2 alone lost to uScreen's own rule, which computes to 13px.
+   .card-title carries the size, so target both together for specificity. */
+.foxtel-sbb .card-title,
+.foxtel-sbb .card-title.line-clamp-2 {
+    font-size: 26px !important;
+    line-height: 1.3 !important;
+    margin-top: 10px !important;
 }
 
 /* Hide "See All" links — confusing for elderly users */
-.category-see-all,
-a[href*="see_all"],
-a[href*="see-all"],
-a[class*="see-all"],
-a[class*="seeAll"] {
+.foxtel-sbb .category-see-all,
+.foxtel-sbb a[href*="see_all"],
+.foxtel-sbb a[href*="see-all"],
+.foxtel-sbb a[class*="see-all"],
+.foxtel-sbb a[class*="seeAll"] {
     display: none !important;
 }
 
@@ -273,12 +293,24 @@ a[class*="seeAll"] {
     font-size: 20px !important;
 }
 
-/* Bigger video posters: fewer per rail, easier to see */
-.foxtel-sbb .swiper-slide {
-    min-width: 320px !important;
+/* Item 3, part two. Belt and braces on the card width.
+   The rail is a flex row and each slide is flex: 0 0 auto with a width that
+   comes from uScreen's own stylesheet. Setting Swiper's slidesPerView in
+   foxtel-rcu.js covers the case where Swiper owns the width; this covers the
+   case where the stylesheet does. The safe area takes 5% each side, so the
+   rail is about 90vw wide and three cards plus two 18px gaps must fit it. */
+.foxtel-sbb .category-carousel__slide {
+    width: calc((90vw - 36px) / 3) !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
 }
-.foxtel-sbb .swiper-slide img,
-.foxtel-sbb .swiper-slide picture {
+
+/* Item 3. Bigger posters, three to a row.
+   Swiper sets the slide width itself, so the real work is in foxtel-rcu.js.
+   These rules only make the image fill whatever width Swiper gives it.
+   The old rules targeted .swiper-slide, which does not exist on the page. */
+.foxtel-sbb .category-carousel__slide img,
+.foxtel-sbb .category-carousel__slide picture {
     width: 100% !important;
     height: auto !important;
 }

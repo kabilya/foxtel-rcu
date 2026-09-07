@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-01-a';
+  var RCU_VERSION = '2026-09-07-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1080,6 +1080,64 @@
       setTimeout(hideShareCalendarButtons, 500);
     });
 
+    // --- Item 3: three cards to a row ---
+    // Each rail is a <ds-swiper> whose Swiper instance lives in its shadow root.
+    // uScreen sets slidesPerView from breakpoints (6 at 1920), so this cannot be
+    // done in CSS. We change the instance and let Swiper recompute widths,
+    // scroll steps and the navigation arrows itself.
+    var CARDS_PER_ROW = 3;
+
+    function swiperOf(ds) {
+      try {
+        var el = ds.shadowRoot && ds.shadowRoot.querySelector('.swiper');
+        return el && el.swiper ? el.swiper : null;
+      } catch (ex) { return null; }
+    }
+
+    function setCardsPerRow() {
+      if (!isSBB) return;
+      var rails = document.querySelectorAll('ds-swiper');
+      for (var i = 0; i < rails.length; i++) {
+        var sw = swiperOf(rails[i]);
+        if (!sw || sw.destroyed) continue;
+        if (sw.params.slidesPerView === CARDS_PER_ROW && sw.__rcuPinned) continue;
+        sw.params.slidesPerView = CARDS_PER_ROW;
+        sw.params.slidesPerGroup = CARDS_PER_ROW;
+        // Breakpoints re-apply their own slidesPerView on every resize and on
+        // init, so they have to go or they will undo this.
+        sw.params.breakpoints = {};
+        sw.__rcuPinned = true;
+        try { sw.update(); } catch (ex) {}
+      }
+    }
+
+    // Rails render late and re-render on navigation, so watch for new ones
+    // rather than guessing a delay. The observer is cheap: it only reacts when
+    // a ds-swiper is actually added.
+    function watchForRails() {
+      if (!isSBB || !document.body) return;
+      setCardsPerRow();
+      var pending = false;
+      new MutationObserver(function(muts) {
+        if (pending) return;
+        for (var i = 0; i < muts.length; i++) {
+          var added = muts[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var n = added[j];
+            if (n.nodeType === 1 && (n.tagName === 'DS-SWIPER' || (n.querySelector && n.querySelector('ds-swiper')))) {
+              pending = true;
+              setTimeout(function() { pending = false; setCardsPerRow(); }, 150);
+              return;
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+
+    watchForRails();
+    document.addEventListener('turbo:load', function() { setTimeout(setCardsPerRow, 400); });
+    window.addEventListener('resize', function() { setTimeout(setCardsPerRow, 200); });
+
     // --- Volume indicator ---
     var _volTimer = null;
     var _trackedVolume = 1; // fallback level when no video is on page
@@ -1824,6 +1882,22 @@
         }, 300);
         e.preventDefault();
         return;
+      }
+
+      // Item 2: the yellow "A" key goes to the Seniors Channel home screen.
+      // Foxtel's guide maps Yellow A to "c" (FBIQ-018 section 4). The RCU Home
+      // key cannot be used: it force-exits the app back to the BiQ launcher.
+      if (key === 'c' && isSBB) {
+        var aTag = document.activeElement ? document.activeElement.tagName : '';
+        if (aTag !== 'INPUT' && aTag !== 'TEXTAREA' && !_kbdOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          var vidA = document.querySelector('video');
+          if (vidA && !vidA.paused) vidA.pause();
+          exitFullscreen();
+          window.location.href = '/catalog';
+          return;
+        }
       }
 
       // Exit key — prevent typing "e" on SBB (SBB handles exit)
