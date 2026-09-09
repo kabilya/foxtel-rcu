@@ -145,6 +145,9 @@
         if (rect.width > 0 && rect.height > 0) {
           // Skip keyboard overlay elements
           if (_kbdOverlay && _kbdOverlay.contains(el)) continue;
+          // Skip the side menu. It has its own navigation and must not appear
+          // in the content list, or the catalog rules would walk into it.
+          if (el.closest && el.closest('#rcu-side-menu')) continue;
           var s = window.getComputedStyle(el);
           if (s.visibility !== 'hidden' && s.display !== 'none') {
             out.push(el);
@@ -1080,6 +1083,155 @@
       setTimeout(hideShareCalendarButtons, 500);
     });
 
+    // --- Item 1: Fire TV style side menu ---
+    // The uScreen header is a web page header: small text, a Filters button and
+    // a search box. Foxtel's defect 1 is really about that. We hide it and put a
+    // rail down the left instead, the way the Fire TV app does.
+    //
+    // Destinations were confirmed live on theseniorschannel.uscreen.io.
+    var SIDE_MENU_ID = 'rcu-side-menu';
+    var MENU_ITEMS = [
+      { id: 'home',      href: '/catalog',   label: 'Home',
+        path: 'M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3z' },
+      { id: 'search',    href: '/search',    label: 'Search',
+        path: 'M10 4a6 6 0 104 10.5l5 5 1.5-1.5-5-5A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z' },
+      { id: 'favorites', href: '/favorites', label: 'Favourites',
+        path: 'M12 20s-7-4.4-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.6-7 9-7 9z' },
+      { id: 'account',   href: '/account',   label: 'Settings',
+        path: 'M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2 1.5.4 2.4-2.2 1-1.6 1.9-2.4-.5L12 21l-1.2-2.2-2.4.5L6.8 17l-2.2-1 .4-2.4L3 12l2-1.5-.4-2.4 2.2-1L8.4 5l2.4.5L12 3l1.2 2.5 2.4-.5 1.6 2.1 2.2 1-.4 2.4z' },
+      { id: 'signout',   href: '/sign_out',  label: 'Sign out', bottom: true,
+        path: 'M10 3H5a2 2 0 00-2 2v14a2 2 0 002 2h5v-2H5V5h5zm5 4l-1.4 1.4L15.2 10H9v2h6.2l-1.6 1.6L15 15l4-4z' }
+    ];
+
+    function svgIcon(d) {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+             '<path d="' + d + '"/></svg>';
+    }
+
+    function buildSideMenu() {
+      if (!isSBB) return;
+      if (document.getElementById(SIDE_MENU_ID)) { markActiveMenuItem(); return; }
+      if (!document.body) return;
+
+      var nav = document.createElement('nav');
+      nav.id = SIDE_MENU_ID;
+      nav.setAttribute('aria-label', 'Main menu');
+
+      var brand = document.createElement('div');
+      brand.className = 'rcu-menu-brand';
+      brand.innerHTML = svgIcon('M8 5v14l11-7z');
+      nav.appendChild(brand);
+
+      MENU_ITEMS.forEach(function(item) {
+        var a = document.createElement('a');
+        a.className = 'rcu-menu-item' + (item.bottom ? ' rcu-menu-bottom' : '');
+        a.href = item.href;
+        a.setAttribute('data-rcu-menu', item.id);
+        a.setAttribute('aria-label', item.label);
+        a.innerHTML = svgIcon(item.path) + '<span class="rcu-menu-label">' + item.label + '</span>';
+        nav.appendChild(a);
+      });
+
+      // First child of body, so DOM order matches what the eye sees.
+      document.body.insertBefore(nav, document.body.firstChild);
+      document.body.classList.add('rcu-has-side-menu');
+      markActiveMenuItem();
+    }
+
+    function markActiveMenuItem() {
+      var nav = document.getElementById(SIDE_MENU_ID);
+      if (!nav) return;
+      var path = window.location.pathname;
+      var items = nav.querySelectorAll('.rcu-menu-item');
+      for (var i = 0; i < items.length; i++) {
+        var href = items[i].getAttribute('href');
+        var on = (href === '/catalog') ? (path === '/catalog' || path === '/')
+                                       : path.indexOf(href) === 0;
+        items[i].classList.toggle('rcu-menu-active', on);
+      }
+    }
+
+    function menuItems() {
+      var nav = document.getElementById(SIDE_MENU_ID);
+      return nav ? nav.querySelectorAll('.rcu-menu-item') : [];
+    }
+
+    function inSideMenu(el) {
+      return !!(el && el.closest && el.closest('#' + SIDE_MENU_ID));
+    }
+
+    // Remember where we were in the content, so leaving the menu returns there.
+    var _lastContentFocus = null;
+    document.addEventListener('focusin', function(ev) {
+      if (!inSideMenu(ev.target)) _lastContentFocus = ev.target;
+    }, true);
+
+    function focusFirstContent() {
+      if (_lastContentFocus && document.contains(_lastContentFocus)) {
+        var r = _lastContentFocus.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) { _lastContentFocus.focus(); return true; }
+      }
+      var list = getVisibleFocusables();
+      if (list.length) { getFocusTarget(list[0]).focus(); return true; }
+      return false;
+    }
+
+    // Menu navigation is deliberately self-contained. It never runs through the
+    // catalog rules, and getVisibleFocusables ignores the menu, so the two
+    // systems cannot interfere with each other.
+    function hasFocusableLeftOnSameRow(active) {
+      var ar = active.getBoundingClientRect();
+      var acy = ar.top + ar.height / 2;
+      var list = getVisibleFocusables(); // already excludes the side menu
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] === active) continue;
+        var r = list[i].getBoundingClientRect();
+        if (r.right > ar.left - 5) continue;                   // not to the left
+        var band = Math.max(ar.height, r.height) * 0.6;
+        if (Math.abs((r.top + r.height / 2) - acy) > band) continue; // different row
+        return true;
+      }
+      return false;
+    }
+
+    function handleSideMenuKey(key, active) {
+      var items = menuItems();
+      if (!items.length) return false;
+
+      if (inSideMenu(active)) {
+        var idx = -1;
+        for (var i = 0; i < items.length; i++) if (items[i] === active) { idx = i; break; }
+        if (key === 'ArrowDown') { items[Math.min(idx + 1, items.length - 1)].focus(); return true; }
+        if (key === 'ArrowUp')   { items[Math.max(idx - 1, 0)].focus(); return true; }
+        if (key === 'ArrowRight') { focusFirstContent(); return true; }
+        if (key === 'ArrowLeft')  { return true; } // already at the far left
+        return false;
+      }
+
+      // In the content and pressing left: step into the menu when there is
+      // nothing further left on the same row.
+      //
+      // Asking findNext is not good enough here. A category heading sits above
+      // the cards and starts further left, so it counts as "to the left" and
+      // would swallow the key forever. Only things on roughly the same line
+      // should block entry to the menu.
+      if (key === 'ArrowLeft' && active && active !== document.body) {
+        if (hasFocusableLeftOnSameRow(active)) return false;
+        var current = null;
+        for (var j = 0; j < items.length; j++) {
+          if (items[j].classList.contains('rcu-menu-active')) { current = items[j]; break; }
+        }
+        (current || items[0]).focus();
+        return true;
+      }
+      return false;
+    }
+
+    buildSideMenu();
+    document.addEventListener('turbo:load', function() {
+      setTimeout(function() { buildSideMenu(); markActiveMenuItem(); }, 200);
+    });
+
     // --- Item 3: three cards to a row ---
     // Each rail is a <ds-swiper> whose Swiper instance lives in its shadow root.
     // uScreen sets slidesPerView from breakpoints (6 at 1920), so this cannot be
@@ -1108,6 +1260,28 @@
         sw.params.breakpoints = {};
         sw.__rcuPinned = true;
         try { sw.update(); } catch (ex) {}
+      }
+      sizeSlidesToRail();
+    }
+
+    // Set the slide width from the rail's own measured width rather than from
+    // viewport maths. The rail sits inside the page's own padding, which we
+    // cannot know from CSS, and getting it wrong pushes the third card past the
+    // safe area. Measuring is exact and survives any layout change.
+    function sizeSlidesToRail() {
+      if (!isSBB) return;
+      var rails = document.querySelectorAll('ds-swiper');
+      for (var i = 0; i < rails.length; i++) {
+        var railWidth = rails[i].clientWidth;
+        if (!railWidth) continue;
+        var slides = rails[i].querySelectorAll('.category-carousel__slide');
+        if (!slides.length) continue;
+        var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
+        var w = Math.floor((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW);
+        if (w < 120) continue; // rail not laid out yet
+        for (var j = 0; j < slides.length; j++) {
+          slides[j].style.setProperty('width', w + 'px', 'important');
+        }
       }
     }
 
@@ -1526,6 +1700,13 @@
               return;
             }
           }
+        }
+
+        // Side menu first. It owns its own movement and returns true when it
+        // has taken the key, so nothing below can also act on it.
+        if (handleSideMenuKey(key, active)) {
+          e.preventDefault();
+          return;
         }
 
         // --- Catalog vertical navigation ---
