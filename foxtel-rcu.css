@@ -45,11 +45,19 @@
    The rail is clipped by an .overflow-hidden ancestor. Making that visible
    would let off-screen slides spill sideways, so instead we pad the grid and
    let the card grow into the padding. */
+/* Room for the lift. A loaded rail is <ds-swiper> inside a div.overflow-hidden,
+   so the card must grow into padding rather than out of the clip box. */
 .foxtel-sbb .category-carousel__grid,
+.foxtel-sbb ds-swiper,
 .foxtel-sbb ds-swiper::part(wrapper) {
     padding-top: 30px !important;
     padding-bottom: 30px !important;
 }
+.foxtel-sbb .category-group > .overflow-hidden {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+}
+.foxtel-sbb swiper-slide:focus-within,
 .foxtel-sbb .category-carousel__slide:focus-within,
 .foxtel-sbb .tiled-gallery-item:focus-within,
 .foxtel-sbb .pricing-card:focus-within,
@@ -302,6 +310,7 @@ body.rcu-fullscreen-active .footer {
    foxtel-rcu.js covers the case where Swiper owns the width; this covers the
    case where the stylesheet does. The safe area takes 5% each side, so the
    rail is about 90vw wide and three cards plus two 18px gaps must fit it. */
+.foxtel-sbb swiper-slide,
 .foxtel-sbb .category-carousel__slide {
     /* Content box is the screen less the 132px menu and the 5vw right safe
        area, so 95vw - 132px. Three cards and two 18px gaps must fit inside it.
@@ -315,6 +324,8 @@ body.rcu-fullscreen-active .footer {
    Swiper sets the slide width itself, so the real work is in foxtel-rcu.js.
    These rules only make the image fill whatever width Swiper gives it.
    The old rules targeted .swiper-slide, which does not exist on the page. */
+.foxtel-sbb swiper-slide img,
+.foxtel-sbb swiper-slide picture,
 .foxtel-sbb .category-carousel__slide img,
 .foxtel-sbb .category-carousel__slide picture {
     width: 100% !important;
@@ -474,17 +485,18 @@ body.foxtel-sbb {
     fill: #C4610A;
 }
 
-/* Focused menu item uses the same orange as the cards, so one highlight style
-   means one thing everywhere. */
+/* Focused menu item. Deliberately quieter than a card: the rail is small and
+   always on screen, so a solid orange fill was shouting. A thin ring and a
+   soft tint are enough to say where you are. */
 .foxtel-sbb #rcu-side-menu .rcu-menu-item:focus {
-    outline: 8px solid #FF9500 !important;
-    outline-offset: 4px;
-    background: #FF9500;
-    transform: scale(1.06);
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.55) !important;
+    outline: 4px solid #FF9500 !important;
+    outline-offset: 2px;
+    background: rgba(245, 135, 31, 0.16);
+    transform: scale(1.04);
+    box-shadow: none !important;
 }
 .foxtel-sbb #rcu-side-menu .rcu-menu-item:focus svg {
-    fill: #fff;
+    fill: #C4610A;
 }
 
 /* Playback owns the whole screen. */

@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-a';
+  var RCU_VERSION = '2026-09-10-b';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -148,6 +148,10 @@
           // Skip the side menu. It has its own navigation and must not appear
           // in the content list, or the catalog rules would walk into it.
           if (el.closest && el.closest('#rcu-side-menu')) continue;
+          // Item 7: category headings are not selectable. Up and Down move
+          // between rails instead, so the headings are no longer needed as
+          // stepping stones.
+          if (el.classList && el.classList.contains('category-title')) continue;
           var s = window.getComputedStyle(el);
           if (s.visibility !== 'hidden' && s.display !== 'none') {
             out.push(el);
@@ -1090,16 +1094,19 @@
     //
     // Destinations were confirmed live on theseniorschannel.uscreen.io.
     var SIDE_MENU_ID = 'rcu-side-menu';
+    // Icons are the standard Material Design 24x24 glyphs (Apache 2.0), inlined
+    // so the box downloads nothing. The earlier set was hand drawn and the gear
+    // in particular did not read as a gear.
     var MENU_ITEMS = [
       { id: 'home',      href: '/catalog',   label: 'Home',
-        path: 'M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3z' },
+        path: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' },
       { id: 'search',    href: '/search',    label: 'Search',
-        path: 'M10 4a6 6 0 104 10.5l5 5 1.5-1.5-5-5A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z' },
+        path: 'M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z' },
       { id: 'favorites', href: '/favorites', label: 'Favourites',
-        path: 'M12 20s-7-4.4-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.6-7 9-7 9z' },
+        path: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z' },
       // Settings sits at the foot of the rail, as it does on the Fire TV app.
       { id: 'account',   href: '/account',   label: 'Settings', bottom: true,
-        path: 'M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2 1.5.4 2.4-2.2 1-1.6 1.9-2.4-.5L12 21l-1.2-2.2-2.4.5L6.8 17l-2.2-1 .4-2.4L3 12l2-1.5-.4-2.4 2.2-1L8.4 5l2.4.5L12 3l1.2 2.5 2.4-.5 1.6 2.1 2.2 1-.4 2.4z' }
+        path: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z' }
     ];
 
     function svgIcon(d) {
@@ -1178,6 +1185,56 @@
     // Menu navigation is deliberately self-contained. It never runs through the
     // catalog rules, and getVisibleFocusables ignores the menu, so the two
     // systems cannot interfere with each other.
+    // --- Rail helpers, used by item 7 ---
+    // A rail is one horizontal row of cards. Loaded rails are <ds-swiper>;
+    // during loading the page shows .content-row instead.
+    function visibleRails() {
+      var out = [];
+      var found = document.querySelectorAll('ds-swiper, .content-row');
+      for (var i = 0; i < found.length; i++) {
+        var r = found[i].getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        // Skip a .content-row that merely wraps a ds-swiper we already have.
+        if (found[i].classList.contains('content-row') && found[i].querySelector('ds-swiper')) continue;
+        if (cardsIn(found[i]).length) out.push(found[i]);
+      }
+      out.sort(function(a, b) {
+        return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+      });
+      return out;
+    }
+
+    function cardsIn(rail) {
+      var list = getVisibleFocusables();
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        if (rail.contains(list[i])) out.push(list[i]);
+      }
+      return out;
+    }
+
+    function railIndexOf(rails, el) {
+      for (var i = 0; i < rails.length; i++) if (rails[i].contains(el)) return i;
+      return -1;
+    }
+
+    function centreX(el) {
+      var r = el.getBoundingClientRect();
+      return r.left + r.width / 2;
+    }
+
+    // Keep the viewer's place across the screen when changing rows.
+    function cardNearestX(rail, x) {
+      var cards = cardsIn(rail);
+      if (!cards.length) return null;
+      var best = cards[0], bestD = Infinity;
+      for (var i = 0; i < cards.length; i++) {
+        var d = Math.abs(centreX(cards[i]) - x);
+        if (d < bestD) { bestD = d; best = cards[i]; }
+      }
+      return best;
+    }
+
     function hasFocusableLeftOnSameRow(active) {
       var ar = active.getBoundingClientRect();
       var acy = ar.top + ar.height / 2;
@@ -1273,7 +1330,9 @@
       for (var i = 0; i < rails.length; i++) {
         var railWidth = rails[i].clientWidth;
         if (!railWidth) continue;
-        var slides = rails[i].querySelectorAll('.category-carousel__slide');
+        // A loaded rail uses <swiper-slide>; the loading skeleton uses
+        // .category-carousel__slide. Match both.
+        var slides = rails[i].querySelectorAll('swiper-slide, .category-carousel__slide');
         if (!slides.length) continue;
         var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
         var w = Math.floor((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW);
@@ -1507,50 +1566,65 @@
     // --- Auto-play video on page load ---
     // SBB's embedded Chromium allows fullscreen without user gesture.
     // Desktop Chrome does not, so only auto-fullscreen on SBB.
-    function autoPlayVideo() {
+    // Retry until the video actually starts, then stop. The previous version
+    // marked the URL as done before the play attempt and only ran once, three
+    // seconds after load. On a slow box the player is often not in the DOM yet
+    // at that point, so it gave up for good and nothing ever played.
+    //
+    // The per-URL guard and the bound are what keep Foxtel's auto play loop
+    // fixed: at most 8 attempts, and none at all on a browse screen.
+    var _autoPlayTries = 0;
+    var _autoPlayTimer = null;
+    var AUTOPLAY_MAX_TRIES = 8;
+    var AUTOPLAY_INTERVAL = 1500;
+
+    function scheduleAutoPlay() {
+      if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
+      _autoPlayTries = 0;
+      _autoPlayTimer = setTimeout(tryAutoPlay, AUTOPLAY_INTERVAL);
+    }
+
+    function retryAutoPlay() {
+      if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
+      _autoPlayTimer = setTimeout(tryAutoPlay, AUTOPLAY_INTERVAL);
+    }
+
+    function tryAutoPlay() {
+      _autoPlayTimer = null;
       if (!isPlayablePage()) return;
-      // Once per URL. Retries and repeated turbo:load events must not re-fire.
       var here = window.location.href;
-      if (_autoPlayedFor === here) return;
+      if (_autoPlayedFor === here) return;        // already started on this page
+      if (++_autoPlayTries > AUTOPLAY_MAX_TRIES) return;
+
       var vp = document.querySelector('video-player');
-      if (!vp) return;
-      var vid = vp.querySelector('video');
-      if (!vid) return;
-      if (!vid.paused) return;
-      _autoPlayedFor = here;
+      var vid = vp && vp.querySelector('video');
+      if (!vid) { retryAutoPlay(); return; }      // player not rendered yet
+      if (!vid.paused) { _autoPlayedFor = here; return; }
+
       vid.muted = false;
       vid.volume = 1;
-      // If HLS hasn't loaded on SBB, trigger fallback first
-      if (vid.readyState === 0 && isSBB) {
-        fixVideoPlayback();
-        setTimeout(function() {
-          var v = document.querySelector('video-player video');
-          if (v && v.paused) {
-            v.muted = false;
-            v.volume = 1;
-            if (isSBB) enterFullscreen(v);
-            v.play().catch(function() {
-              v.muted = true;
-              v.play().then(function() { v.muted = false; }).catch(function() {});
-            });
-          }
-        }, 1500);
-      } else {
-        if (isSBB) enterFullscreen(vid);
-        vid.play().catch(function() {
-          vid.muted = true;
-          vid.play().then(function() { vid.muted = false; }).catch(function() {});
-        });
-      }
+      if (vid.readyState === 0 && isSBB) fixVideoPlayback();
+      if (isSBB) enterFullscreen(vid);
+      vid.play().catch(function() {
+        // Some builds refuse an unmuted start. Try muted, then unmute.
+        vid.muted = true;
+        vid.play().then(function() { vid.muted = false; }).catch(function() {});
+      });
+
+      // Only count it as done once it is really playing.
+      setTimeout(function() {
+        if (vid && !vid.paused) _autoPlayedFor = here;
+        else retryAutoPlay();
+      }, 1200);
     }
 
     setTimeout(enableAutoplay, 3000);
     setTimeout(setupAutoplayNext, 3000);
-    setTimeout(autoPlayVideo, 3000);
+    scheduleAutoPlay();
     document.addEventListener('turbo:load', function() {
       setTimeout(enableAutoplay, 2000);
       setTimeout(setupAutoplayNext, 2000);
-      setTimeout(autoPlayVideo, 3000);
+      scheduleAutoPlay();
     });
 
     // --- Main keydown handler ---
@@ -1708,118 +1782,42 @@
           return;
         }
 
-        // --- Catalog vertical navigation ---
-        // Two navigation modes:
-        //   Left/Right = move within a <ds-swiper> carousel (between thumbnails)
-        //   Up/Down    = move between sections (category-title ↔ thumbnails)
+        // --- Item 7: rail to rail movement ---
+        // Category headings are no longer selectable, so Up and Down move
+        // straight between rails and keep your place across the screen, which
+        // is how the Fire TV app behaves.
         //
-        // The focusable list is in DOM order:
-        //   [nav..., cat-title-1, thumb, thumb, cat-title-2, thumb, ...]
-        //
-        // Rules for Up/Down:
-        //   Down from cat-title   → first thumbnail in its section
-        //   Down from thumbnail   → next category-title (skip sibling thumbs)
-        //   Up from thumbnail     → preceding category-title
-        //   Up from cat-title     → last thumbnail in previous section
+        // The old model used the headings as stepping stones:
+        //   thumbnail -> heading -> thumbnail
+        // Taking them out of the focus order meant rebuilding this outright.
         var next = null;
-        var isCatTitle = active.classList && active.classList.contains('category-title');
-        var hasCatalog = document.querySelector('.category-title');
-
-        // Build focList once — used by both catalog rules and the fallback below.
         var focList = getVisibleFocusables();
         var selfIdx = -1;
         for (var fi = 0; fi < focList.length; fi++) {
           if (focList[fi] === active) { selfIdx = fi; break; }
         }
 
-        // Nothing focused (e.g. page just loaded): Down = first focusable.
-        if (selfIdx === -1 && key === 'ArrowDown' && focList.length > 0) {
+        // Nothing focused yet (page just loaded): Down picks the first card.
+        if (selfIdx === -1 && (key === 'ArrowDown' || key === 'ArrowRight') && focList.length) {
           next = focList[0];
         }
 
-        if (hasCatalog && (key === 'ArrowUp' || key === 'ArrowDown')) {
-          if (selfIdx >= 0) {
-            // Only apply catalog rules when active element is at or after
-            // the first category-title (excludes nav bar, filter panel, etc.)
-            var firstCatIdx = -1;
-            for (var fci = 0; fci < focList.length; fci++) {
-              if (focList[fci].classList && focList[fci].classList.contains('category-title')) {
-                firstCatIdx = fci; break;
+        if (!next && (key === 'ArrowUp' || key === 'ArrowDown') && selfIdx >= 0) {
+          var rails = visibleRails();
+          if (rails.length) {
+            var here = railIndexOf(rails, active);
+            if (here !== -1) {
+              var want = here + (key === 'ArrowDown' ? 1 : -1);
+              if (want >= 0 && want < rails.length) {
+                next = cardNearestX(rails[want], centreX(active));
               }
-            }
-
-            if (firstCatIdx >= 0 && selfIdx >= firstCatIdx) {
-              if (key === 'ArrowDown' && isCatTitle) {
-                // Cat-title → first thumbnail below (next non-title)
-                for (var fd = selfIdx + 1; fd < focList.length; fd++) {
-                  if (!(focList[fd].classList && focList[fd].classList.contains('category-title'))) {
-                    next = focList[fd]; break;
-                  }
-                }
-              } else if (key === 'ArrowDown' && !isCatTitle) {
-                // Thumbnail → next category-title (skip sibling thumbnails)
-                for (var fd2 = selfIdx + 1; fd2 < focList.length; fd2++) {
-                  if (focList[fd2].classList && focList[fd2].classList.contains('category-title')) {
-                    next = focList[fd2]; break;
-                  }
-                }
-              } else if (key === 'ArrowUp' && !isCatTitle) {
-                // Thumbnail → preceding category-title
-                for (var fu = selfIdx - 1; fu >= 0; fu--) {
-                  if (focList[fu].classList && focList[fu].classList.contains('category-title')) {
-                    next = focList[fu]; break;
-                  }
-                }
-              } else if (key === 'ArrowUp' && isCatTitle) {
-                // Cat-title → first thumbnail of previous section
-                // Find the previous cat-title, then take the first non-title after it
-                var prevCatIdx = -1;
-                for (var fu2 = selfIdx - 1; fu2 >= 0; fu2--) {
-                  if (focList[fu2].classList && focList[fu2].classList.contains('category-title')) {
-                    prevCatIdx = fu2; break;
-                  }
-                }
-                if (prevCatIdx >= 0) {
-                  for (var ft = prevCatIdx + 1; ft < selfIdx; ft++) {
-                    if (!(focList[ft].classList && focList[ft].classList.contains('category-title'))) {
-                      next = focList[ft]; break;
-                    }
-                  }
-                }
-              }
-            }
-
-            // Pressing Down or Right from above the catalog (nav bar, filter panel):
-            // use DOM order so spatial cross-penalty doesn't cause jumps to skip filters.
-            if (!next && (key === 'ArrowDown' || key === 'ArrowRight') &&
-                firstCatIdx > 0 && selfIdx < firstCatIdx) {
-              var actR = active.getBoundingClientRect();
-              if (key === 'ArrowRight') {
-                // Right: move to next element in DOM order within pre-catalog area
-                if (selfIdx + 1 < focList.length) {
-                  next = focList[selfIdx + 1];
-                }
-              } else {
-                // Down: first pass — find element strictly below active
-                for (var dci = selfIdx + 1; dci < focList.length; dci++) {
-                  var dciRect = focList[dci].getBoundingClientRect();
-                  if (dciRect.top >= actR.bottom - 5) {
-                    next = focList[dci]; break;
-                  }
-                }
-                // Second pass — if filter bar is horizontal (same row), accept same-row elements
-                if (!next) {
-                  for (var dci2 = selfIdx + 1; dci2 < focList.length; dci2++) {
-                    var dciRect2 = focList[dci2].getBoundingClientRect();
-                    if (dciRect2.top >= actR.top - 5) {
-                      next = focList[dci2]; break;
-                    }
-                  }
-                }
-              }
+            } else if (key === 'ArrowDown') {
+              // Above the rails, for example the filter row: drop into the first.
+              next = cardNearestX(rails[0], centreX(active));
             }
           }
         }
+
 
         // Fall back to spatial navigation (non-catalog pages, or edges)
         if (!next) next = findNext(active, key);
