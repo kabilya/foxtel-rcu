@@ -20,11 +20,22 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-b';
+  var RCU_VERSION = '2026-09-10-c';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
   var isSBB = /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent);
+
+  // Mark the document NOW, not on DOMContentLoaded.
+  //
+  // This script is render blocking in <head>, so this line runs before the body
+  // paints. Putting the class on <html> here means the television styles are in
+  // force for the very first paint. Adding it to <body> after the DOM was ready
+  // meant the page drew once in its web layout, then jumped to the TV layout,
+  // which is the flash of the old screen.
+  if (isSBB) {
+    try { document.documentElement.classList.add('foxtel-sbb'); } catch (ex) {}
+  }
 
   // The account avatar opens the only menu that holds "My Account". In the
   // collapsed header the theme renders it as a bare <li> with an <img> inside:
@@ -96,6 +107,10 @@
       document.querySelectorAll('video').forEach(function(v) {
         if (!v.hasAttribute('tabindex')) v.setAttribute('tabindex', '0');
       });
+
+      // Reserve room for the scrollbar. Without this its arrival and departure
+      // changes the viewport width, which is one half of the pulsing loop.
+      try { document.documentElement.style.scrollbarGutter = 'stable'; } catch (ex) {}
 
       makeAvatarFocusable();
 
@@ -1317,58 +1332,80 @@
         sw.__rcuPinned = true;
         try { sw.update(); } catch (ex) {}
       }
-      sizeSlidesToRail();
+      scheduleSizeSlides(60);
     }
 
     // Set the slide width from the rail's own measured width rather than from
     // viewport maths. The rail sits inside the page's own padding, which we
     // cannot know from CSS, and getting it wrong pushes the third card past the
     // safe area. Measuring is exact and survives any layout change.
+    // Sizing the cards from the rail width can feed back on itself:
+    //   wider cards -> taller page -> scrollbar appears -> viewport narrows
+    //   -> resize fires -> narrower cards -> shorter page -> scrollbar goes
+    // and the cards visibly pulse. Three things stop that.
+    //   1. A stable scrollbar gutter, so its arrival cannot change the width.
+    //   2. Hysteresis: ignore a change smaller than a scrollbar.
+    //   3. One debounced timer, so a burst of resizes does one pass.
+    var WIDTH_TOLERANCE = 10;
+    var _sizeTimer = null;
+    var _sizing = false;
+
+    function scheduleSizeSlides(delay) {
+      if (_sizeTimer) clearTimeout(_sizeTimer);
+      _sizeTimer = setTimeout(function() {
+        _sizeTimer = null;
+        sizeSlidesToRail();
+      }, delay || 250);
+    }
+
     function sizeSlidesToRail() {
-      if (!isSBB) return;
-      var rails = document.querySelectorAll('ds-swiper');
-      for (var i = 0; i < rails.length; i++) {
-        var railWidth = rails[i].clientWidth;
-        if (!railWidth) continue;
-        // A loaded rail uses <swiper-slide>; the loading skeleton uses
-        // .category-carousel__slide. Match both.
-        var slides = rails[i].querySelectorAll('swiper-slide, .category-carousel__slide');
-        if (!slides.length) continue;
-        var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
-        var w = Math.floor((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW);
-        if (w < 120) continue; // rail not laid out yet
-        for (var j = 0; j < slides.length; j++) {
-          slides[j].style.setProperty('width', w + 'px', 'important');
+      if (!isSBB || _sizing) return;
+      _sizing = true;
+      try {
+        var rails = document.querySelectorAll('ds-swiper');
+        for (var i = 0; i < rails.length; i++) {
+          var railWidth = rails[i].clientWidth;
+          if (!railWidth) continue;
+          // A loaded rail uses <swiper-slide>; the loading skeleton uses
+          // .category-carousel__slide. Match both.
+          var slides = rails[i].querySelectorAll('swiper-slide, .category-carousel__slide');
+          if (!slides.length) continue;
+          var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
+          var w = Math.floor((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW);
+          if (w < 120) continue; // rail not laid out yet
+          var current = parseFloat(slides[0].style.width) || 0;
+          if (Math.abs(current - w) < WIDTH_TOLERANCE) continue; // close enough
+          for (var j = 0; j < slides.length; j++) {
+            slides[j].style.setProperty('width', w + 'px', 'important');
+          }
         }
+      } finally {
+        _sizing = false;
       }
     }
 
-    // Rails render late and re-render on navigation, so watch for new ones
-    // rather than guessing a delay. The observer is cheap: it only reacts when
-    // a ds-swiper is actually added.
+    // Rails render after the page does, so retry for a short while rather than
+    // watching the whole document for changes. A body-wide MutationObserver
+    // reacts to every DOM change and costs too much on this hardware.
+    var _railTries = 0;
     function watchForRails() {
-      if (!isSBB || !document.body) return;
+      if (!isSBB) return;
+      _railTries = 0;
+      pollForRails();
+    }
+
+    function pollForRails() {
       setCardsPerRow();
-      var pending = false;
-      new MutationObserver(function(muts) {
-        if (pending) return;
-        for (var i = 0; i < muts.length; i++) {
-          var added = muts[i].addedNodes;
-          for (var j = 0; j < added.length; j++) {
-            var n = added[j];
-            if (n.nodeType === 1 && (n.tagName === 'DS-SWIPER' || (n.querySelector && n.querySelector('ds-swiper')))) {
-              pending = true;
-              setTimeout(function() { pending = false; setCardsPerRow(); }, 150);
-              return;
-            }
-          }
-        }
-      }).observe(document.body, { childList: true, subtree: true });
+      var ready = document.querySelectorAll('ds-swiper swiper-slide').length > 0;
+      if (ready || ++_railTries > 12) return;   // about 6 seconds, then stop
+      setTimeout(pollForRails, 500);
     }
 
     watchForRails();
-    document.addEventListener('turbo:load', function() { setTimeout(setCardsPerRow, 400); });
-    window.addEventListener('resize', function() { setTimeout(setCardsPerRow, 200); });
+    document.addEventListener('turbo:load', function() { setTimeout(watchForRails, 300); });
+    // Resize only re-measures. It must not call setCardsPerRow, because that
+    // calls swiper.update(), which can itself nudge the layout.
+    window.addEventListener('resize', function() { scheduleSizeSlides(250); });
 
     // --- Volume indicator ---
     var _volTimer = null;
@@ -1463,6 +1500,11 @@
     var _hlsInstance = null;
     var HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.7/+esm';
 
+    // Attach at most once per page. Calling this repeatedly destroys an HLS
+    // player that is still loading and starts again, so the video never gets
+    // far enough to play and the box reports that it is not loaded.
+    var _hlsFor = null;
+
     function fixVideoPlayback() {
       var vp = document.querySelector('video-player');
       if (!vp) return;
@@ -1470,6 +1512,8 @@
       if (!vid) return;
       // Only intervene if the video hasn't loaded (readyState 0 = HAVE_NOTHING)
       if (vid.readyState > 0) return;
+      if (_hlsFor === window.location.href) return; // already attached here
+      _hlsFor = window.location.href;               // set before the async import
       var source = vid.querySelector('source');
       if (!source || !source.src) return;
       var src = source.src;
@@ -1502,6 +1546,7 @@
     }
 
     function scheduleVideoFix() {
+      _hlsFor = null; // new page, allow one attach
       setTimeout(fixVideoPlayback, 2000);
     }
     scheduleVideoFix();
@@ -1603,7 +1648,9 @@
 
       vid.muted = false;
       vid.volume = 1;
-      if (vid.readyState === 0 && isSBB) fixVideoPlayback();
+      // Only once, and only on the first attempt. fixVideoPlayback guards
+      // itself as well, but do not even ask on later retries.
+      if (_autoPlayTries === 1 && vid.readyState === 0 && isSBB) fixVideoPlayback();
       if (isSBB) enterFullscreen(vid);
       vid.play().catch(function() {
         // Some builds refuse an unmuted start. Try muted, then unmute.

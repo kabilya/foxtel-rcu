@@ -22,9 +22,11 @@
     border-radius: 8px;
     z-index: 9999;
     position: relative;
-    /* Dark ring first, so the orange still reads on a pale poster */
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.55),
-                0 18px 44px rgba(0, 0, 0, 0.45) !important;
+    /* Dark ring so the orange still reads on a pale poster.
+       A large blurred drop shadow was here too. Blur is repainted on every
+       focus change and this hardware cannot afford it, which is most of why
+       moving around felt heavy. A hard ring costs almost nothing. */
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.55) !important;
 }
 
 /* Keyboard-only focus ring, set top box only. Unscoped it put an 8px orange
@@ -50,8 +52,10 @@
 .foxtel-sbb .category-carousel__grid,
 .foxtel-sbb ds-swiper,
 .foxtel-sbb ds-swiper::part(wrapper) {
-    padding-top: 30px !important;
-    padding-bottom: 30px !important;
+    /* Enough for a 9% lift on a 300px card, and no more. Every extra pixel
+       here is multiplied by the number of rails and makes the page taller. */
+    padding-top: 18px !important;
+    padding-bottom: 18px !important;
 }
 .foxtel-sbb .category-group > .overflow-hidden {
     padding-top: 4px !important;
@@ -62,8 +66,8 @@
 .foxtel-sbb .tiled-gallery-item:focus-within,
 .foxtel-sbb .pricing-card:focus-within,
 .foxtel-sbb .social-feed-item:focus-within {
-    transform: scale(1.09);
-    transition: transform 0.15s ease;
+    transform: scale(1.06);
+    transition: transform 0.12s ease-out;
     z-index: 60;
     position: relative;
     /* Solid backing. The lifted card overlaps its neighbours, and without this
@@ -72,9 +76,10 @@
     border-radius: 8px;
 }
 
-/* The safe area now lives with the side menu rule further down, written as
-   body.foxtel-sbb. Written as ".foxtel-sbb body" it could never match, because
-   the class is on <body> itself, so no box has ever had the 5% Foxtel ask for. */
+/* The safe area lives with the side menu rule further down. It is written as
+   ".foxtel-sbb body", which is correct now that the class goes on <html> at
+   parse time. It was previously written that way while the class was on <body>,
+   where it could never match, so no box ever got the 5% Foxtel ask for. */
 
 /* --- SBB Virtual Keyboard --- */
 #sbb-kbd-overlay {
@@ -421,9 +426,9 @@ body.rcu-fullscreen-active .footer {
 }
 
 /* Push the page clear of the rail, and apply the 5% safe area Foxtel ask for.
-   The old rule for this was written as ".foxtel-sbb body", which can never
-   match, because the class is on <body> itself. */
-body.foxtel-sbb {
+   The class sits on <html>, applied while the head is parsed, so this is in
+   force for the first paint. */
+.foxtel-sbb body {
     margin: 5vh 5vw 5vh 0 !important;
     padding-left: 132px !important;
     box-sizing: border-box;
@@ -503,7 +508,7 @@ body.foxtel-sbb {
 body.rcu-fullscreen-active #rcu-side-menu {
     display: none !important;
 }
-body.rcu-fullscreen-active.foxtel-sbb {
+.foxtel-sbb body.rcu-fullscreen-active {
     margin: 0 !important;
     padding-left: 0 !important;
 }
