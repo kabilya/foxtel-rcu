@@ -1097,10 +1097,9 @@
         path: 'M10 4a6 6 0 104 10.5l5 5 1.5-1.5-5-5A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z' },
       { id: 'favorites', href: '/favorites', label: 'Favourites',
         path: 'M12 20s-7-4.4-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.6-7 9-7 9z' },
-      { id: 'account',   href: '/account',   label: 'Settings',
-        path: 'M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2 1.5.4 2.4-2.2 1-1.6 1.9-2.4-.5L12 21l-1.2-2.2-2.4.5L6.8 17l-2.2-1 .4-2.4L3 12l2-1.5-.4-2.4 2.2-1L8.4 5l2.4.5L12 3l1.2 2.5 2.4-.5 1.6 2.1 2.2 1-.4 2.4z' },
-      { id: 'signout',   href: '/sign_out',  label: 'Sign out', bottom: true,
-        path: 'M10 3H5a2 2 0 00-2 2v14a2 2 0 002 2h5v-2H5V5h5zm5 4l-1.4 1.4L15.2 10H9v2h6.2l-1.6 1.6L15 15l4-4z' }
+      // Settings sits at the foot of the rail, as it does on the Fire TV app.
+      { id: 'account',   href: '/account',   label: 'Settings', bottom: true,
+        path: 'M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l-2 1.5.4 2.4-2.2 1-1.6 1.9-2.4-.5L12 21l-1.2-2.2-2.4.5L6.8 17l-2.2-1 .4-2.4L3 12l2-1.5-.4-2.4 2.2-1L8.4 5l2.4.5L12 3l1.2 2.5 2.4-.5 1.6 2.1 2.2 1-.4 2.4z' }
     ];
 
     function svgIcon(d) {
