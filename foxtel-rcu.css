@@ -49,6 +49,13 @@
    let the card grow into the padding. */
 /* Room for the lift. A loaded rail is <ds-swiper> inside a div.overflow-hidden,
    so the card must grow into padding rather than out of the clip box. */
+/* Horizontal room as well as vertical. scale() grows from the centre, so the
+   leftmost card's edge moves outside the rail and the .overflow-hidden
+   ancestor clips it. sizeSlidesToRail subtracts this padding when it measures. */
+.foxtel-sbb ds-swiper {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+}
 .foxtel-sbb .category-carousel__grid,
 .foxtel-sbb ds-swiper,
 .foxtel-sbb ds-swiper::part(wrapper) {
@@ -399,6 +406,13 @@ body.rcu-fullscreen-active .footer {
     display: none !important;
 }
 
+/* uScreen indents each row by about 3% of the screen. With the menu taking a
+   further 104px, roughly 15% of the width was gone before any content. */
+.foxtel-sbb .content-row {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+}
+
 /* The Filters and Search bar is not part of <header>. It sits in its own
    turbo-frame, so hiding the header leaves it stranded at the top of the
    screen with nothing above it. Fire TV has no filter bar, and Search now
@@ -413,7 +427,7 @@ body.rcu-fullscreen-active .footer {
     top: 0;
     left: 0;
     bottom: 0;
-    width: 132px;
+    width: 104px;
     z-index: 9998;
     display: flex;
     flex-direction: column;
@@ -430,7 +444,7 @@ body.rcu-fullscreen-active .footer {
    force for the first paint. */
 .foxtel-sbb body {
     margin: 5vh 5vw 5vh 0 !important;
-    padding-left: 132px !important;
+    padding-left: 104px !important;
     box-sizing: border-box;
 }
 

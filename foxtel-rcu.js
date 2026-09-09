@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-c';
+  var RCU_VERSION = '2026-09-10-d';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1309,6 +1309,7 @@
     // done in CSS. We change the instance and let Swiper recompute widths,
     // scroll steps and the navigation arrows itself.
     var CARDS_PER_ROW = 3;
+    var CARD_SCALE = 0.9;   // 10% smaller, so the lift has somewhere to go
 
     function swiperOf(ds) {
       try {
@@ -1370,11 +1371,20 @@
           // .category-carousel__slide. Match both.
           var slides = rails[i].querySelectorAll('swiper-slide, .category-carousel__slide');
           if (!slides.length) continue;
+          var railStyle = getComputedStyle(rails[i]);
+          railWidth -= (parseFloat(railStyle.paddingLeft) || 0) +
+                       (parseFloat(railStyle.paddingRight) || 0);
           var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
-          var w = Math.floor((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW);
+          // CARD_SCALE leaves slack so a focused card can grow without eating
+          // the gap or being clipped at the left edge of the rail.
+          var w = Math.floor(((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW) * CARD_SCALE);
           if (w < 120) continue; // rail not laid out yet
           var current = parseFloat(slides[0].style.width) || 0;
           if (Math.abs(current - w) < WIDTH_TOLERANCE) continue; // close enough
+          // Remember what this rail measured. A repeat pass at the same width
+          // then does no DOM writing at all, so nothing can feed back.
+          if (rails[i].__rcuLastRailWidth === railWidth) continue;
+          rails[i].__rcuLastRailWidth = railWidth;
           for (var j = 0; j < slides.length; j++) {
             slides[j].style.setProperty('width', w + 'px', 'important');
           }
@@ -1388,24 +1398,35 @@
     // watching the whole document for changes. A body-wide MutationObserver
     // reacts to every DOM change and costs too much on this hardware.
     var _railTries = 0;
+    var _railTimer = null;
     function watchForRails() {
       if (!isSBB) return;
+      if (_railTimer) { clearTimeout(_railTimer); _railTimer = null; }
       _railTries = 0;
       pollForRails();
     }
 
     function pollForRails() {
+      _railTimer = null;
       setCardsPerRow();
       var ready = document.querySelectorAll('ds-swiper swiper-slide').length > 0;
       if (ready || ++_railTries > 12) return;   // about 6 seconds, then stop
-      setTimeout(pollForRails, 500);
+      _railTimer = setTimeout(pollForRails, 500);
     }
 
     watchForRails();
     document.addEventListener('turbo:load', function() { setTimeout(watchForRails, 300); });
-    // Resize only re-measures. It must not call setCardsPerRow, because that
-    // calls swiper.update(), which can itself nudge the layout.
-    window.addEventListener('resize', function() { scheduleSizeSlides(250); });
+    // Resize only re-measures, and only when the WIDTH actually changed.
+    // Height changes fire resize too, and reacting to those is what let the
+    // cards pulse: sizing made the page taller, that fired resize, and we
+    // sized again. It must not call setCardsPerRow either, because that calls
+    // swiper.update(), which can itself nudge the layout.
+    var _lastWidth = window.innerWidth;
+    window.addEventListener('resize', function() {
+      if (window.innerWidth === _lastWidth) return;
+      _lastWidth = window.innerWidth;
+      scheduleSizeSlides(250);
+    });
 
     // --- Volume indicator ---
     var _volTimer = null;
@@ -1651,17 +1672,34 @@
       // Only once, and only on the first attempt. fixVideoPlayback guards
       // itself as well, but do not even ask on later retries.
       if (_autoPlayTries === 1 && vid.readyState === 0 && isSBB) fixVideoPlayback();
-      if (isSBB) enterFullscreen(vid);
+
+      // Go full screen only once the video is genuinely playing. Entering
+      // first meant a failed start left a black full screen with nothing in
+      // it, which is what the box was showing.
+      if (!vid.__rcuPlayHook) {
+        vid.__rcuPlayHook = true;
+        vid.addEventListener('playing', function() {
+          _autoPlayedFor = window.location.href;
+          if (isSBB) enterFullscreen(vid);
+        });
+      }
+
       vid.play().catch(function() {
         // Some builds refuse an unmuted start. Try muted, then unmute.
         vid.muted = true;
         vid.play().then(function() { vid.muted = false; }).catch(function() {});
       });
 
-      // Only count it as done once it is really playing.
+      // Backstop. Not every player fires "playing", especially once hls.js is
+      // attached, so confirm by polling as well. enterFullscreen guards itself,
+      // so whichever path gets there first wins and the other is a no-op.
       setTimeout(function() {
-        if (vid && !vid.paused) _autoPlayedFor = here;
-        else retryAutoPlay();
+        if (vid && !vid.paused) {
+          _autoPlayedFor = here;
+          if (isSBB) enterFullscreen(vid);
+          return;
+        }
+        retryAutoPlay();
       }, 1200);
     }
 
