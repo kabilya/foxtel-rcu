@@ -383,6 +383,15 @@ body.rcu-fullscreen-active .footer {
     display: none !important;
 }
 
+/* The Filters and Search bar is not part of <header>. It sits in its own
+   turbo-frame, so hiding the header leaves it stranded at the top of the
+   screen with nothing above it. Fire TV has no filter bar, and Search now
+   lives in the rail, so it goes too. Remove this block to bring it back. */
+.foxtel-sbb turbo-frame#catalog_filters,
+.foxtel-sbb .ui-filters {
+    display: none !important;
+}
+
 #rcu-side-menu {
     position: fixed;
     top: 0;
