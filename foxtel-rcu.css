@@ -7,7 +7,7 @@
    stylesheet and the script are from different deploys. The two are separate
    <link> and <script> tags, so it is easy to update one and forget the other,
    and the result is a page that is half fixed with no obvious cause. */
-:root { --rcu-build: "2026-09-10-t"; }
+:root { --rcu-build: "2026-09-10-u"; }
 
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
@@ -587,4 +587,23 @@ body.rcu-fullscreen-active #rcu-side-menu {
 .rcu-search-page .ui-filters .toggle-filters,
 .rcu-search-page .ui-filters #catalog_filter_button {
     display: none !important;
+}
+
+/* --- A full screen video is not a focus target --- */
+/* The generic focus rule is more specific than the full screen rule, so a
+   focused video was getting the 8px orange outline, its 6px offset and the
+   rounded corners. The offset shows as a band down the edge of the screen and
+   the radius rounds the picture. Playback should reach every edge. */
+.foxtel-sbb video.rcu-fullscreen,
+.foxtel-sbb video.rcu-fullscreen:focus,
+.foxtel-sbb video.rcu-fullscreen:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+}
+/* Anything behind the picture should be black, never page grey. */
+body.rcu-fullscreen-active {
+    background: #000 !important;
 }
