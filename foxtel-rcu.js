@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-f';
+  var RCU_VERSION = '2026-09-10-g';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -209,52 +209,34 @@
       }
       out = filtered;
 
-      // De-duplicate <a> elements with same href near each other (slider cards
-      // render image + text as separate links to the same URL).
-      // Threshold 150px to catch image+text pairs in tall carousel rows.
+      // One card, one focus target.
+      //
+      // A card holds two links to the same programme: the image and the title
+      // beneath it. uScreen puts a query string on the image one, so comparing
+      // URLs does not pair them. Comparing paths does, but it also collapses
+      // the episodes of a collection, which differ ONLY by query string and are
+      // four separate cards. Grouping by the card container gets both right.
       var deduped = [];
-      var seen = {};
+      var bestInCard = {};   // card container -> index in deduped
+      var cardKeys = [];     // parallel list of the container elements
       for (var j = 0; j < out.length; j++) {
         var el2 = out[j];
-        if (el2.tagName !== 'A' || !el2.href) {
+        var card = el2.closest ? el2.closest('swiper-slide, .category-carousel__slide, .content-item') : null;
+        // Not inside a card, or it IS the card: keep it as its own target.
+        if (!card || card === el2) { deduped.push(el2); continue; }
+        var ci = cardKeys.indexOf(card);
+        if (ci === -1) {
+          cardKeys.push(card);
+          bestInCard[cardKeys.length - 1] = deduped.length;
           deduped.push(el2);
           continue;
         }
-        // Never dedup category title links
-        if (el2.classList && el2.classList.contains('category-title')) {
-          deduped.push(el2);
-          continue;
-        }
-        // Never dedup header or nav links. "Home" and "My Account" both point
-        // at /catalog, so the same-href rule below deleted one of them from
-        // remote navigation entirely. Dedup exists for carousel cards that
-        // render an image and a caption as two links to one program, and that
-        // never happens in the header.
-        if (el2.closest && el2.closest('header, nav, .header-navigation, .navigation-list')) {
-          deduped.push(el2);
-          continue;
-        }
-        // Compare the path, not the whole URL. uScreen adds a query string to
-        // the image link but not the title link, so identical destinations
-        // looked different and every card offered two focus targets.
-        var href;
-        try { href = new URL(el2.href, location.origin).pathname; }
-        catch (ex) { href = el2.href; }
-        var r2 = el2.getBoundingClientRect();
-        var cy2 = r2.top + r2.height / 2;
-        var area2 = r2.width * r2.height;
-        if (seen[href]) {
-          var prev = seen[href];
-          if (Math.abs(prev.cy - cy2) < 150) {
-            if (area2 > prev.area) {
-              deduped[prev.index] = el2;
-              seen[href] = { cy: cy2, area: area2, index: prev.index };
-            }
-            continue;
-          }
-        }
-        seen[href] = { cy: cy2, area: area2, index: deduped.length };
-        deduped.push(el2);
+        // Already have something from this card. Keep whichever is larger,
+        // which is the poster rather than the caption.
+        var slot = bestInCard[ci];
+        var kept = deduped[slot];
+        var rNew = el2.getBoundingClientRect(), rOld = kept.getBoundingClientRect();
+        if (rNew.width * rNew.height > rOld.width * rOld.height) deduped[slot] = el2;
       }
       out = deduped;
 
