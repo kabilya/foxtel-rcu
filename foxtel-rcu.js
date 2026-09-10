@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-j';
+  var RCU_VERSION = '2026-09-10-k';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1232,6 +1232,23 @@
       return out;
     }
 
+    // Bring a card into view by moving the carousel, not the page. Rails hold
+    // more cards than the three on screen, and scrollIntoView would drag the
+    // whole layout sideways instead.
+    function revealInRail(rail, el) {
+      var sw = swiperOf(rail);
+      if (!sw || typeof sw.slideTo !== 'function') return;
+      var slide = el.closest ? el.closest('swiper-slide, .category-carousel__slide') : null;
+      if (!slide) return;
+      var slides = rail.querySelectorAll('swiper-slide, .category-carousel__slide');
+      var idx = Array.prototype.indexOf.call(slides, slide);
+      if (idx < 0) return;
+      var railBox = rail.getBoundingClientRect();
+      var box = slide.getBoundingClientRect();
+      if (box.left >= railBox.left - 1 && box.right <= railBox.right + 1) return; // already visible
+      try { sw.slideTo(Math.max(0, idx - (CARDS_PER_ROW - 1))); } catch (ex) {}
+    }
+
     function railIndexOf(rails, el) {
       for (var i = 0; i < rails.length; i++) if (rails[i].contains(el)) return i;
       return -1;
@@ -1950,6 +1967,27 @@
           next = focList[0];
         }
 
+        // Left and Right stay inside the rail you are on. Without this, Right
+        // at the end of a rail falls through to spatial navigation and jumps
+        // into a different row, which is disorienting and made Left fail to
+        // retrace the same path.
+        if (!next && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+          var myRail = active.closest ? active.closest('ds-swiper') : null;
+          if (myRail) {
+            var inRail = cardsIn(myRail);
+            var here = inRail.indexOf(active);
+            if (here !== -1) {
+              var want = here + (key === 'ArrowRight' ? 1 : -1);
+              if (want >= 0 && want < inRail.length) {
+                next = inRail[want];
+                revealInRail(myRail, next);
+              } else {
+                return;   // at the end of the row: stay put
+              }
+            }
+          }
+        }
+
         if (!next && (key === 'ArrowUp' || key === 'ArrowDown') && selfIdx >= 0) {
           var rails = visibleRails();
           if (rails.length) {
@@ -1958,6 +1996,7 @@
               var want = here + (key === 'ArrowDown' ? 1 : -1);
               if (want >= 0 && want < rails.length) {
                 next = cardNearestX(rails[want], centreX(active));
+                if (next) revealInRail(rails[want], next);
               }
             } else if (key === 'ArrowDown') {
               // Above the rails, for example the filter row: drop into the first.
