@@ -3,6 +3,12 @@
  * Add to UScreen Snippets > Common pages (CSS)
  */
 
+/* Build marker. foxtel-rcu.js reads this and shows a warning on screen if the
+   stylesheet and the script are from different deploys. The two are separate
+   <link> and <script> tags, so it is easy to update one and forget the other,
+   and the result is a page that is half fixed with no obvious cause. */
+:root { --rcu-build: "2026-09-10-o"; }
+
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
 .foxtel-sbb button:focus,

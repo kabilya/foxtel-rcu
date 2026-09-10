@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-n';
+  var RCU_VERSION = '2026-09-10-o';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -106,6 +106,26 @@
     }
   }
 
+  // The stylesheet and the script are two separate tags in the head code, so
+  // one can be updated without the other. That leaves the page half fixed with
+  // nothing to show why. Say so, on screen, rather than let it be debugged the
+  // hard way.
+  function checkBuildMatch() {
+    var css;
+    try {
+      css = getComputedStyle(document.documentElement)
+              .getPropertyValue('--rcu-build').replace(/["'\s]/g, '');
+    } catch (ex) { return; }
+    if (!css || css === RCU_VERSION) return;
+    var warn = document.createElement('div');
+    warn.id = 'rcu-build-mismatch';
+    warn.textContent = 'Build mismatch: script ' + RCU_VERSION + ', stylesheet ' + css;
+    warn.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;' +
+      'background:#b00020;color:#fff;font:16px/1.4 monospace;padding:8px 14px;' +
+      'pointer-events:none;border-bottom-left-radius:8px;';
+    (document.body || document.documentElement).appendChild(warn);
+  }
+
   function init() {
     if (isSBB) {
       document.body.classList.add('foxtel-sbb');
@@ -119,6 +139,7 @@
       // changes the viewport width, which is one half of the pulsing loop.
       try { document.documentElement.style.scrollbarGutter = 'stable'; } catch (ex) {}
 
+      checkBuildMatch();
       makeAvatarFocusable();
 
       // Hint to the SBB that text inputs should trigger the soft keyboard
@@ -1697,9 +1718,11 @@
     // defect 9 needs kept on top: never on a browse screen, and once per URL.
     // Everything else about this path is as it was.
     var _autoPlayTimer = null;
+    var _autoPlayWaits = 0;
 
     function scheduleAutoPlay() {
       if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
+      _autoPlayWaits = 0;
       _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
@@ -1710,9 +1733,18 @@
       if (_autoPlayedFor === here) return;         // defect 9: once per URL
 
       var vp = document.querySelector('video-player');
-      if (!vp) return;
-      var vid = vp.querySelector('video');
-      if (!vid) return;
+      var vid = vp && vp.querySelector('video');
+      if (!vid) {
+        // The player has not rendered yet. On a one or two core box that is
+        // common, and firing once at three seconds meant giving up before the
+        // element existed: no full screen, no playback, no fallback either.
+        //
+        // Waiting is the whole change. The page is not marked as done and the
+        // HLS path is not touched, so everything below behaves exactly as it
+        // did in the version that worked.
+        if (++_autoPlayWaits <= 15) _autoPlayTimer = setTimeout(autoPlayVideo, 1000);
+        return;
+      }
       if (!vid.paused) { _autoPlayedFor = here; return; }
       _autoPlayedFor = here;
 
