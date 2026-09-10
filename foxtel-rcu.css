@@ -7,7 +7,7 @@
    stylesheet and the script are from different deploys. The two are separate
    <link> and <script> tags, so it is easy to update one and forget the other,
    and the result is a page that is half fixed with no obvious cause. */
-:root { --rcu-build: "2026-09-10-o"; }
+:root { --rcu-build: "2026-09-10-p"; }
 
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
@@ -557,4 +557,34 @@ body.rcu-fullscreen-active #rcu-side-menu {
 /* The lift needs somewhere to grow here too. */
 .foxtel-sbb div[class*="grid-cols"] {
     padding: 18px 0 !important;
+}
+
+/* --- The search page --- */
+/* uScreen puts the search box inside the Filters bar, which we hide on every
+   other screen. On the search page it has to be visible and large enough to
+   read and aim at from a chair. The filter dropdowns beside it stay hidden. */
+.rcu-search-page div.ui-filters,
+.rcu-search-page turbo-frame#catalog_filters {
+    display: block !important;
+}
+.rcu-search-page .ui-filters .main-filters {
+    justify-content: flex-start !important;
+    padding: 12px 0 !important;
+}
+.rcu-search-page #catalog_filter_search {
+    width: 62vw !important;
+    max-width: none !important;
+}
+.rcu-search-page #search {
+    width: 100% !important;
+    font-size: 32px !important;
+    padding: 16px 20px !important;
+    line-height: 1.3 !important;
+    border-radius: 10px !important;
+}
+/* Nothing else from that bar belongs on a television. */
+.rcu-search-page .ui-filters ds-select,
+.rcu-search-page .ui-filters .toggle-filters,
+.rcu-search-page .ui-filters #catalog_filter_button {
+    display: none !important;
 }

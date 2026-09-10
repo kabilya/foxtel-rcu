@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-o';
+  var RCU_VERSION = '2026-09-10-p';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -41,7 +41,15 @@
   // meant the page drew once in its web layout, then jumped to the TV layout,
   // which is the flash of the old screen.
   if (isSBB) {
-    try { document.documentElement.classList.add('foxtel-sbb'); } catch (ex) {}
+    try {
+      document.documentElement.classList.add('foxtel-sbb');
+      // The search box lives inside the Filters bar, which we hide everywhere
+      // else. On the search page it has to come back, or there is no way to
+      // search at all. Marked here, at parse time, so it never flashes.
+      if (/\/search(\/|$)/.test(window.location.pathname)) {
+        document.documentElement.classList.add('rcu-search-page');
+      }
+    } catch (ex) {}
   }
 
   // The account avatar opens the only menu that holds "My Account". In the
@@ -1131,6 +1139,8 @@
     setTimeout(hideSeeAllLinks, 500);
     setTimeout(hideShareCalendarButtons, 500);
     document.addEventListener('turbo:load', function() {
+      document.documentElement.classList.toggle('rcu-search-page',
+        /\/search(\/|$)/.test(window.location.pathname));
       _filterTries = 0; // fresh page, fresh retry budget
       if (isSBB) makeAvatarFocusable();
       setTimeout(collapseNativeFilters, 500);
