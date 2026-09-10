@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-p';
+  var RCU_VERSION = '2026-09-10-q';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1139,6 +1139,10 @@
     setTimeout(hideSeeAllLinks, 500);
     setTimeout(hideShareCalendarButtons, 500);
     document.addEventListener('turbo:load', function() {
+      // A new navigation is a new visit. Without this, coming back to a video
+      // you watched earlier in the session is silently treated as "already
+      // auto played" and nothing happens at all.
+      _autoPlayedFor = null;
       document.documentElement.classList.toggle('rcu-search-page',
         /\/search(\/|$)/.test(window.location.pathname));
       _filterTries = 0; // fresh page, fresh retry budget
@@ -1560,8 +1564,13 @@
 
     // Media events do not bubble, but the capture phase still reaches document,
     // so one pair of listeners covers every video on the page.
+    // "Paused" must only appear for a video that was playing and then stopped.
+    // Showing it on a video that never started tells the viewer the wrong
+    // thing: it looks like they paused it, when in fact it never began.
+    var _hasEverPlayed = false;
+    document.addEventListener('playing', function() { _hasEverPlayed = true; }, true);
     document.addEventListener('pause', function() {
-      if (isInFullscreen()) pausedIndicator(true);
+      if (_hasEverPlayed && isInFullscreen()) pausedIndicator(true);
     }, true);
     document.addEventListener('play', function() {
       pausedIndicator(false);
@@ -1629,12 +1638,18 @@
     //     m3u8 natively
     //   - a "player is working" guard that counted currentTime > 0 as healthy,
     //     so a Continue Watching title with a resume position never got rescued
-    function fixVideoPlayback() {
+    // force: only ever set after we have tried to play and it did not take.
+    // Without it this returns early whenever the player reports any progress,
+    // which is right for a healthy player and wrong for one that reported
+    // metadata and then stalled.
+    var _forcedRescueFor = null;
+
+    function fixVideoPlayback(force) {
       var vp = document.querySelector('video-player');
       if (!vp) return;
       var vid = vp.querySelector('video');
       if (!vid) return;
-      if (vid.readyState > 0) return;          // already loading, leave it alone
+      if (!force && vid.readyState > 0) return;   // already loading, leave it alone
       var source = vid.querySelector('source');
       if (!source || !source.src) return;
       var src = source.src;
@@ -1782,7 +1797,28 @@
           vid.muted = true;
           vid.play().then(function() { vid.muted = false; }).catch(function() {});
         });
+        // uScreen reported progress, so we did not hand this to hls.js. If it
+        // is still sitting there a couple of seconds later, the stream failed
+        // after reporting metadata and nothing else is going to save it.
+        setTimeout(function() { rescueStalledPlayback(vid, here); }, 2500);
       }
+    }
+
+    function rescueStalledPlayback(vid, pageHref) {
+      if (!vid || !vid.paused) return;            // it started, nothing to do
+      if (_forcedRescueFor === pageHref) return;  // one takeover per page
+      _forcedRescueFor = pageHref;
+      fixVideoPlayback(true);
+      setTimeout(function() {
+        var v = document.querySelector('video-player video') || vid;
+        if (v && v.paused) {
+          v.muted = false;
+          v.play().catch(function() {
+            v.muted = true;
+            v.play().then(function() { v.muted = false; }).catch(function() {});
+          });
+        }
+      }, 1800);
     }
 
     setTimeout(enableAutoplay, 3000);
@@ -2309,7 +2345,19 @@
             if (video.paused) {
               video.muted = false;
               video.volume = 1;
-              video.play();
+              // If play is refused the player is dead, which on this box means
+              // uScreen's own has failed. Hand it to hls.js and try again,
+              // rather than swallowing the rejection and doing nothing at all.
+              video.play().catch(function() {
+                fixVideoPlayback();
+                setTimeout(function() {
+                  var v = document.querySelector('video-player video') || video;
+                  if (v && v.paused) v.play().catch(function() {
+                    v.muted = true;
+                    v.play().then(function() { v.muted = false; }).catch(function() {});
+                  });
+                }, 1500);
+              });
               enterFullscreen(video);
             } else {
               // Pause holds fullscreen. Only Back and Stop leave it.
