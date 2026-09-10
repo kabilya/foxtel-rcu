@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-u';
+  var RCU_VERSION = '2026-09-10-v';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1779,11 +1779,25 @@
       _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
+    // Why auto play did or did not act. Read by the temporary diagnostic. Every
+    // early return has left the reason a guess until now.
+    function note(reason, extra) {
+      try {
+        window.__rcuAutoPlay = window.__rcuAutoPlay || { log: [] };
+        var w = window.__rcuAutoPlay;
+        w.reason = reason;
+        w.at = Math.round(performance.now()) + 'ms';
+        w.waits = _autoPlayWaits;
+        if (extra) for (var k in extra) w[k] = extra[k];
+        if (w.log.length < 20) w.log.push(w.at + ' ' + reason + (extra ? ' ' + JSON.stringify(extra) : ''));
+      } catch (ex) {}
+    }
+
     function autoPlayVideo() {
       _autoPlayTimer = null;
-      if (!isPlayablePage()) return;               // defect 9: not on browse screens
+      if (!isPlayablePage()) { note('skipped: not a playable page'); return; }
       var here = window.location.href;
-      if (_autoPlayedFor === here) return;         // defect 9: once per URL
+      if (_autoPlayedFor === here) { note('skipped: already auto played this URL'); return; }
 
       var vp = document.querySelector('video-player');
       var vid = vp && vp.querySelector('video');
@@ -1795,11 +1809,14 @@
         // Waiting is the whole change. The page is not marked as done and the
         // HLS path is not touched, so everything below behaves exactly as it
         // did in the version that worked.
+        note('waiting: no video element yet');
         if (++_autoPlayWaits <= 15) _autoPlayTimer = setTimeout(autoPlayVideo, 1000);
+        else note('gave up: video element never appeared');
         return;
       }
-      if (!vid.paused) { _autoPlayedFor = here; return; }
+      if (!vid.paused) { note('already playing on arrival'); _autoPlayedFor = here; return; }
       _autoPlayedFor = here;
+      note('acting', { readyState: vid.readyState, currentTime: Math.round(vid.currentTime) });
 
       vid.muted = false;
       vid.volume = 1;
@@ -1839,6 +1856,7 @@
       function startPlaying() {
         if (settled) return;
         settled = true;
+        note('calling play', { readyState: vid.readyState, currentTime: Math.round(vid.currentTime) });
         vid.muted = false;
         vid.volume = 1;
         enterFullscreen(vid);

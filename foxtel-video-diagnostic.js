@@ -66,6 +66,7 @@
       fullscreen: document.body.classList.contains('rcu-fullscreen-active'),
       hlsJsLoaded: !!window.Hls || 'unknown',
       finalState: final,
+      autoPlay: window.__rcuAutoPlay || '(nothing recorded)',
       timeline: timeline
     };
     try { console.log('[RCU-VIDEO]', JSON.stringify(data)); } catch (e) {}
