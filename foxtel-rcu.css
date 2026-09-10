@@ -448,20 +448,30 @@ body.rcu-fullscreen-active .footer {
     box-sizing: border-box;
 }
 
+/* The real Seniors Channel mark. It is already a circle on a transparent
+   background, so it needs no plate behind it. */
 .rcu-menu-brand {
-    width: 62px;
-    height: 62px;
-    border-radius: 50%;
-    background: #F5871F;
+    width: 68px;
+    height: 68px;
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 26px;
     flex: 0 0 auto;
 }
-.rcu-menu-brand svg {
-    width: 32px;
-    height: 32px;
+.rcu-menu-brand img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+/* Only used if the image host cannot be reached from the box. */
+.rcu-menu-brand.rcu-brand-fallback {
+    border-radius: 50%;
+    background: #F5871F;
+}
+.rcu-menu-brand.rcu-brand-fallback svg {
+    width: 34px;
+    height: 34px;
     fill: #fff;
     margin-left: 4px;
 }

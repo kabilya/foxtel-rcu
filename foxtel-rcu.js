@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-g';
+  var RCU_VERSION = '2026-09-10-h';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1103,6 +1103,8 @@
     //
     // Destinations were confirmed live on theseniorschannel.uscreen.io.
     var SIDE_MENU_ID = 'rcu-side-menu';
+    var BRAND_LOGO = 'https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/' +
+      'u_https://assets.cdn.filesafe.space/753SargALhJ2fcULjiKl/media/677c42ae8bc165c98e8a16f3.png';
     // Icons are the standard Material Design 24x24 glyphs (Apache 2.0), inlined
     // so the box downloads nothing. The earlier set was hand drawn and the gear
     // in particular did not read as a gear.
@@ -1132,9 +1134,17 @@
       nav.id = SIDE_MENU_ID;
       nav.setAttribute('aria-label', 'Main menu');
 
+      // The Seniors Channel mark. Decorative, not a focus target: Home is the
+      // first icon below it and does the same job.
       var brand = document.createElement('div');
       brand.className = 'rcu-menu-brand';
-      brand.innerHTML = svgIcon('M8 5v14l11-7z');
+      var mark = document.createElement('img');
+      mark.src = BRAND_LOGO;
+      mark.alt = 'The Seniors Channel';
+      // If the box cannot reach the image host, fall back to the drawn mark
+      // rather than leaving a broken image in the corner.
+      mark.onerror = function() { brand.innerHTML = svgIcon('M8 5v14l11-7z'); brand.classList.add('rcu-brand-fallback'); };
+      brand.appendChild(mark);
       nav.appendChild(brand);
 
       MENU_ITEMS.forEach(function(item) {
