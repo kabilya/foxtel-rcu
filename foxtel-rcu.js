@@ -1864,6 +1864,8 @@
       var asks = 0;
       var reloads = 0;
       var rescued = false;
+      var lastTime = -1;
+      var stalls = 0;
 
       var timer = null;
       function tick() {
@@ -1873,6 +1875,33 @@
 
         if (!vid.paused) {
           enterFullscreen(vid);          // guards itself, so this is a no-op once set
+
+          // Fault 3, and the one that looks worst to a viewer. The element
+          // says it is playing, it has data buffered, and the clock does not
+          // move. Measured in Chrome: paused false, readyState 4, 35 seconds
+          // buffered, frozen at 0.17s on frame 11. Nothing in the element
+          // reports a fault, so only progress can tell us.
+          if (vid.seeking || vid.ended) { lastTime = vid.currentTime; return; }
+          if (vid.currentTime > lastTime + 0.05) {   // moving, as it should be
+            lastTime = vid.currentTime;
+            stalls = 0;
+            return;
+          }
+          if (vid.readyState < 3 || !bufferedAhead(vid)) return;   // still filling up
+
+          stalls++;
+          if (stalls === 4 || stalls === 9) {
+            // A short seek restarts the pipeline. Do NOT call load() here: on
+            // uScreen's Media Source player that destroys the stream and the
+            // video never comes back.
+            note('playing but frozen, nudging it', { at: +vid.currentTime.toFixed(2), attempt: stalls });
+            try { vid.currentTime = vid.currentTime + 0.25; } catch (ex) {}
+            vid.play().catch(function() {});
+          } else if (stalls === 14 && !rescued) {
+            rescued = true;
+            note('frozen and will not restart, handing over to hls.js');
+            fixVideoPlayback(true);
+          }
           return;                        // keep watching: another reload can stop it again
         }
 
@@ -1922,6 +1951,18 @@
 
       tick();                      // ask straight away, do not lose a second
       timer = setInterval(tick, 1000);
+    }
+
+    // Is there anything to play just past where we are sitting? Without this,
+    // a video that is simply buffering would look exactly like a frozen one.
+    function bufferedAhead(vid) {
+      try {
+        for (var i = 0; i < vid.buffered.length; i++) {
+          if (vid.buffered.start(i) <= vid.currentTime + 0.1 &&
+              vid.buffered.end(i) >= vid.currentTime + 1) return true;
+        }
+      } catch (ex) {}
+      return false;
     }
 
     // The box has one hardware decoder. Turbo keeps the page you came from,
