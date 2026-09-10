@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-q';
+  var RCU_VERSION = '2026-09-10-r';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -552,10 +552,27 @@
       kbdUpdatePreview();
     }
 
+    // uScreen's search does not react to typing. It only runs when the form is
+    // submitted, which is why a word typed on the keyboard changed nothing.
+    // Scoped to the search field so the two step login is not submitted early.
+    function submitIfSearchField(input) {
+      if (!input) return;
+      var isSearch = input.id === 'search' ||
+        (input.closest && !!input.closest('.search-area, #catalog_filter_search'));
+      if (!isSearch) return;
+      var form = input.closest && input.closest('form');
+      if (!form) return;
+      try {
+        if (form.requestSubmit) form.requestSubmit();
+        else form.submit();
+      } catch (ex) {}
+    }
+
     function closeKeyboard(advanceFocus) {
       if (!_kbdOverlay) return;
       _kbdOpen = false;
       _kbdOverlay.className = '';
+      var finishedOn = _kbdTarget;
 
       if (advanceFocus && _kbdTarget) {
         // Find the ds-input or input that was being edited
@@ -573,6 +590,7 @@
         }
       }
       _kbdTarget = null;
+      if (advanceFocus) submitIfSearchField(finishedOn);
     }
 
     function kbdNavigate(direction) {
