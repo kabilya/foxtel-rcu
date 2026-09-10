@@ -1815,7 +1815,16 @@
         else note('gave up: video element never appeared');
         return;
       }
-      if (!vid.paused) { note('already playing on arrival'); _autoPlayedFor = here; return; }
+      if (!vid.paused) {
+        // uScreen started it before we looked. That is a success, not a reason
+        // to walk away: the viewer still needs full screen, and the element can
+        // still be reloaded out from under this a second later.
+        note('already playing on arrival');
+        _autoPlayedFor = here;
+        enterFullscreen(vid);
+        ensurePlaying(vid, here);
+        return;
+      }
       _autoPlayedFor = here;
       note('acting', { readyState: vid.readyState, currentTime: Math.round(vid.currentTime) });
 
