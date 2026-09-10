@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-k';
+  var RCU_VERSION = '2026-09-10-n';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -156,7 +156,28 @@
       '.navigation-dropdown-button'
     ].join(', ');
 
+    // Computed once per key press, then thrown away.
+    //
+    // This walks every focusable on the page and reads layout for each one.
+    // visibleRails() calls cardsIn() for every rail, and cardsIn() calls this,
+    // so a single Up or Down press was doing that walk once per rail: over a
+    // thousand layout reads per keystroke on a catalog this size. Invisible on
+    // a fast machine, and the reason the box felt heavy.
+    //
+    // The cache lives for the current task only, so the next key press sees a
+    // fresh page and nothing can go stale.
+    var _focCache = null;
+    function invalidateFocusCache() { _focCache = null; }
+
     function getVisibleFocusables() {
+      if (_focCache) return _focCache;
+      var result = computeVisibleFocusables();
+      _focCache = result;
+      setTimeout(invalidateFocusCache, 0);
+      return result;
+    }
+
+    function computeVisibleFocusables() {
       var els = document.querySelectorAll(FOCUSABLE);
       var out = [];
       for (var i = 0; i < els.length; i++) {
@@ -1564,89 +1585,49 @@
     var _hlsInstance = null;
     var HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.7/+esm';
 
-    // --- Taking over from uScreen's player when it fails on the box ---
+    // --- HLS Fallback for SBB ---
+    // uScreen's video-player often fails to initialise its own HLS player on
+    // the box's Chromium 105. When the video has loaded nothing, attach hls.js
+    // to the <video> ourselves.
     //
-    // uScreen drives the <video> with its own Media Source player and feeds it
-    // a blob: source. On the box's Chromium 105 that often fails, and the
-    // player shows "The video could not be loaded". That is the whole reason
-    // this fallback exists.
-    //
-    // The rule is about PROGRESS, not about what is attached. Refusing to act
-    // whenever a blob was present meant standing down in exactly the case we
-    // are here to rescue, because uScreen attaches its blob and only then fails.
-    var _hlsFor = null;
-    var _hlsModule = null;
-
-    // Fetch hls.js early on a page that has a player, so the rescue does not
-    // also have to wait for a network round trip at the worst moment.
-    function preloadHls() {
-      if (_hlsModule) return;
-      if (!document.querySelector('video-player, video')) return;
-      import(HLS_CDN).then(function(m) { _hlsModule = m; })
-                     .catch(function() {});
-    }
-
-    function playerIsWorking(vid) {
-      if (vid.error) return false;
-      // Anything buffered at all means uScreen is getting somewhere.
-      return vid.readyState > 0 || vid.currentTime > 0;
-    }
-
-    function hlsSourceFor(vid) {
-      var source = vid.querySelector('source');
-      var src = source && source.src ? source.src : '';
-      return src.indexOf('.m3u8') !== -1 ? src : null;
-    }
-
+    // RESTORED to the version that worked. Three things I added on 10 Sept are
+    // deliberately not here:
+    //   - a six second delay instead of two
+    //   - vid.removeAttribute('src') + vid.load() before attaching, which can
+    //     put the element into an error state, because Chromium cannot play an
+    //     m3u8 natively
+    //   - a "player is working" guard that counted currentTime > 0 as healthy,
+    //     so a Continue Watching title with a resume position never got rescued
     function fixVideoPlayback() {
       var vp = document.querySelector('video-player');
       if (!vp) return;
       var vid = vp.querySelector('video');
       if (!vid) return;
-      if (playerIsWorking(vid)) return;             // leave a healthy player alone
-      if (_hlsFor === window.location.href) return; // one takeover per page
-      var src = hlsSourceFor(vid);
-      if (!src) return;
-      _hlsFor = window.location.href;               // set before the async work
+      if (vid.readyState > 0) return;          // already loading, leave it alone
+      var source = vid.querySelector('source');
+      if (!source || !source.src) return;
+      var src = source.src;
+      if (src.indexOf('.m3u8') === -1) return;
 
-      var attach = function(m) {
-        var Hls = m && m.default;
+      import(HLS_CDN).then(function(m) {
+        var Hls = m.default;
         if (!Hls || !Hls.isSupported()) return;
         if (_hlsInstance) { try { _hlsInstance.destroy(); } catch (ex) {} _hlsInstance = null; }
-        // Detach whatever uScreen left behind, or two players end up on one
-        // element and neither of them wins.
-        try {
-          vid.removeAttribute('src');
-          vid.load();
-        } catch (ex) {}
         var hls = new Hls();
         _hlsInstance = hls;
         hls.loadSource(src);
         hls.attachMedia(vid);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-          vid.play().catch(function() {
-            vid.muted = true;
-            vid.play().then(function() { vid.muted = false; }).catch(function() {});
-          });
-        });
         hls.on(Hls.Events.ERROR, function(event, data) {
           if (data && data.fatal) {
             try { hls.destroy(); } catch (ex) {}
             _hlsInstance = null;
           }
         });
-      };
-
-      if (_hlsModule) attach(_hlsModule);
-      else import(HLS_CDN).then(function(m) { _hlsModule = m; attach(m); }).catch(function() {});
+      }).catch(function() {});
     }
 
     function scheduleVideoFix() {
-      _hlsFor = null; // new page, allow one takeover
-      preloadHls();
-      // Six seconds. uScreen is usually playing well before this, and then
-      // playerIsWorking makes this a no-op.
-      setTimeout(fixVideoPlayback, 6000);
+      setTimeout(fixVideoPlayback, 2000);
     }
     scheduleVideoFix();
     document.addEventListener('turbo:load', scheduleVideoFix);
@@ -1710,77 +1691,56 @@
     // --- Auto-play video on page load ---
     // SBB's embedded Chromium allows fullscreen without user gesture.
     // Desktop Chrome does not, so only auto-fullscreen on SBB.
-    // Retry until the video actually starts, then stop. The previous version
-    // marked the URL as done before the play attempt and only ran once, three
-    // seconds after load. On a slow box the player is often not in the DOM yet
-    // at that point, so it gave up for good and nothing ever played.
+    // --- Auto play on a programme page ---
     //
-    // The per-URL guard and the bound are what keep Foxtel's auto play loop
-    // fixed: at most 8 attempts, and none at all on a browse screen.
-    var _autoPlayTries = 0;
+    // RESTORED to the version that worked, with only the two guards Foxtel's
+    // defect 9 needs kept on top: never on a browse screen, and once per URL.
+    // Everything else about this path is as it was.
     var _autoPlayTimer = null;
-    var AUTOPLAY_MAX_TRIES = 8;
-    var AUTOPLAY_INTERVAL = 1500;
 
     function scheduleAutoPlay() {
       if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
-      _autoPlayTries = 0;
-      _autoPlayTimer = setTimeout(tryAutoPlay, AUTOPLAY_INTERVAL);
+      _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
-    function retryAutoPlay() {
-      if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
-      _autoPlayTimer = setTimeout(tryAutoPlay, AUTOPLAY_INTERVAL);
-    }
-
-    function tryAutoPlay() {
+    function autoPlayVideo() {
       _autoPlayTimer = null;
-      if (!isPlayablePage()) return;
+      if (!isPlayablePage()) return;               // defect 9: not on browse screens
       var here = window.location.href;
-      if (_autoPlayedFor === here) return;        // already started on this page
-      if (++_autoPlayTries > AUTOPLAY_MAX_TRIES) return;
+      if (_autoPlayedFor === here) return;         // defect 9: once per URL
 
       var vp = document.querySelector('video-player');
-      var vid = vp && vp.querySelector('video');
-      if (!vid) { retryAutoPlay(); return; }      // player not rendered yet
+      if (!vp) return;
+      var vid = vp.querySelector('video');
+      if (!vid) return;
       if (!vid.paused) { _autoPlayedFor = here; return; }
+      _autoPlayedFor = here;
 
       vid.muted = false;
       vid.volume = 1;
-      // Give uScreen's own player time before falling back. It attaches a
-      // Media Source player asynchronously, and intervening at 1.5 seconds
-      // was landing in the middle of that. By the fourth attempt it has had
-      // about six seconds, which is long enough to judge it as failed.
-      if (_autoPlayTries === 4 && vid.readyState === 0) fixVideoPlayback();
 
-      // Go full screen only once the video is genuinely playing. Entering
-      // first meant a failed start left a black full screen with nothing in
-      // it, which is what the box was showing.
-      if (!vid.__rcuPlayHook) {
-        vid.__rcuPlayHook = true;
-        vid.addEventListener('playing', function() {
-          _autoPlayedFor = window.location.href;
-          if (isSBB) enterFullscreen(vid);
+      if (vid.readyState === 0) {
+        // Nothing loaded. Hand it to hls.js, give it a moment, then play.
+        fixVideoPlayback();
+        setTimeout(function() {
+          var v = document.querySelector('video-player video');
+          if (v && v.paused) {
+            v.muted = false;
+            v.volume = 1;
+            enterFullscreen(v);
+            v.play().catch(function() {
+              v.muted = true;
+              v.play().then(function() { v.muted = false; }).catch(function() {});
+            });
+          }
+        }, 1500);
+      } else {
+        enterFullscreen(vid);
+        vid.play().catch(function() {
+          vid.muted = true;
+          vid.play().then(function() { vid.muted = false; }).catch(function() {});
         });
       }
-
-      vid.play().catch(function() {
-        // Some builds refuse an unmuted start. Try muted, then unmute.
-        vid.muted = true;
-        vid.play().then(function() { vid.muted = false; }).catch(function() {});
-      });
-
-      // Backstop. Not every player fires "playing", especially once hls.js is
-      // attached, so confirm by polling as well. enterFullscreen guards itself,
-      // so whichever path gets there first wins and the other is a no-op.
-      setTimeout(function() {
-        if (vid && !vid.paused) {
-          _autoPlayedFor = here;
-          if (isSBB) enterFullscreen(vid);
-          return;
-        }
-        retryAutoPlay();
-      }, 1200);
     }
 
     setTimeout(enableAutoplay, 3000);

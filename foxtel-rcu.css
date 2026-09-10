@@ -322,8 +322,11 @@ body.rcu-fullscreen-active .footer {
    foxtel-rcu.js covers the case where Swiper owns the width; this covers the
    case where the stylesheet does. The safe area takes 5% each side, so the
    rail is about 90vw wide and three cards plus two 18px gaps must fit it. */
-.foxtel-sbb swiper-slide,
-.foxtel-sbb .category-carousel__slide {
+/* Carousel slides only. Favourites and Search lay the very same
+   <swiper-slide> elements out in a CSS grid, and forcing a width there pushes
+   each item out of its column so they overlap. */
+.foxtel-sbb ds-swiper swiper-slide,
+.foxtel-sbb ds-swiper .category-carousel__slide {
     /* Content box is the screen less the 132px menu and the 5vw right safe
        area, so 95vw - 132px. Three cards and two 18px gaps must fit inside it.
        The earlier 90vw ignored the menu and pushed the third card off screen. */
@@ -336,8 +339,8 @@ body.rcu-fullscreen-active .footer {
    Swiper sets the slide width itself, so the real work is in foxtel-rcu.js.
    These rules only make the image fill whatever width Swiper gives it.
    The old rules targeted .swiper-slide, which does not exist on the page. */
-.foxtel-sbb swiper-slide img,
-.foxtel-sbb swiper-slide picture,
+.foxtel-sbb ds-swiper swiper-slide img,
+.foxtel-sbb ds-swiper swiper-slide picture,
 .foxtel-sbb .category-carousel__slide img,
 .foxtel-sbb .category-carousel__slide picture {
     width: 100% !important;
@@ -535,4 +538,17 @@ body.rcu-fullscreen-active #rcu-side-menu {
 .foxtel-sbb body.rcu-fullscreen-active {
     margin: 0 !important;
     padding-left: 0 !important;
+}
+
+/* --- Grid pages: Favourites and Search --- */
+/* These are not carousels. uScreen lays them out four or more across, which is
+   a computer layout. Three across matches the rails and stays readable from a
+   chair. */
+.foxtel-sbb div[class*="grid-cols"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 56px !important;
+}
+/* The lift needs somewhere to grow here too. */
+.foxtel-sbb div[class*="grid-cols"] {
+    padding: 18px 0 !important;
 }
