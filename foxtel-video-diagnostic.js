@@ -92,6 +92,47 @@
     }
   }
 
+  // Errors from the remote control script, and any uncaught error at all.
+  // A dead remote leaves no trace otherwise: the viewer just sits there
+  // pressing buttons that do nothing.
+  var errorsSent = 0;
+  function sendError(where, err, key) {
+    if (errorsSent >= 3 || !STORE) return;
+    errorsSent++;
+    var evt = {
+      event_id: eventId(),
+      timestamp: Math.floor(Date.now() / 1000),
+      platform: 'javascript', level: 'error', logger: 'foxtel-rcu',
+      release: 'foxtel-rcu@' + (window.__RCU_VERSION || 'unknown'),
+      environment: 'foxtel-biq',
+      message: { formatted: 'RCU ERROR in ' + where + (key ? ' on key ' + key : '') + ': ' +
+                            (err && err.message ? err.message : String(err)) },
+      tags: { rcu_diag: '1', rcu_error: where, rcu_version: String(window.__RCU_VERSION || 'unknown') },
+      extra: {
+        where: where, key: key || null,
+        message: err && err.message ? String(err.message).slice(0, 300) : String(err).slice(0, 300),
+        stack: err && err.stack ? String(err.stack).slice(0, 1200) : '(none)',
+        url: location.pathname,
+        activeElement: (function () {
+          var a = document.activeElement;
+          return a ? a.tagName + '.' + String(a.className || '').slice(0, 60) : 'none';
+        })(),
+        fullscreen: document.body.classList.contains('rcu-fullscreen-active')
+      }
+    };
+    try {
+      fetch(STORE, { method: 'POST', body: JSON.stringify(evt), mode: 'cors',
+                     headers: { 'Content-Type': 'text/plain;charset=UTF-8' } }).catch(function () {});
+    } catch (e) {}
+  }
+  window.__rcuOnError = sendError;
+  window.addEventListener('error', function (ev) {
+    sendError('window', ev.error || new Error(ev.message), null);
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    sendError('promise', ev.reason || new Error('unhandled rejection'), null);
+  });
+
   function start() {
     if (!/^\/programs\//.test(location.pathname)) return;   // only programme pages
     note('page start');

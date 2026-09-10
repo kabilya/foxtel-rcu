@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-s';
+  var RCU_VERSION = '2026-09-10-t';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1718,6 +1718,16 @@
     // --- CR3: Auto-play next video when current one ends ---
     function onVideoEnded() {
       exitFullscreen();
+      // Put focus somewhere real. After playback the previously focused card
+      // can be gone, and focus on a detached element means every arrow key has
+      // nothing to move from.
+      setTimeout(function() {
+        var ae = document.activeElement;
+        if (!ae || ae === document.body || !document.contains(ae)) {
+          var list = getVisibleFocusables();
+          if (list.length) { try { getFocusTarget(list[0]).focus(); } catch (ex) {} }
+        }
+      }, 300);
       // Look for "next video" section on the page
       var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
       if (nextSection) {
@@ -1843,6 +1853,21 @@
         vid.addEventListener(ev, startPlaying, { once: true });
       });
 
+      // Measured on the box: a video can reach canplay with readyState 4 and a
+      // healthy buffer and still never play, because the play() that followed
+      // was refused. Keep asking rather than assuming the first call took.
+      var nudges = 0;
+      var nudge = setInterval(function() {
+        if (!document.contains(vid) || ++nudges > 8) { clearInterval(nudge); return; }
+        if (!vid.paused) { clearInterval(nudge); return; }
+        if (vid.readyState >= 3) {
+          vid.play().catch(function() {
+            vid.muted = true;
+            vid.play().then(function() { vid.muted = false; }).catch(function() {});
+          });
+        }
+      }, 1200);
+
       (function poll() {
         if (settled) return;
         if (vid.readyState > 0) { startPlaying(); return; }
@@ -1896,7 +1921,18 @@
     // --- Main keydown handler ---
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
     // elements like <ds-input> can consume them
+    // Everything inside runs in a try/catch. A remote that stops responding is
+    // the worst failure this app can have: the viewer cannot navigate, cannot
+    // play, cannot even go home. One exception in here must never be able to
+    // cause that, whatever else is wrong.
     document.addEventListener('keydown', function(e) {
+     try {
+      // The on screen keyboard swallows every key while it is open. If it is
+      // flagged open but is not actually on screen, that alone would look
+      // exactly like a dead remote, so clear it before anything else.
+      if (_kbdOpen && (!_kbdOverlay || _kbdOverlay.className.indexOf('sbb-kbd-visible') === -1)) {
+        _kbdOpen = false;
+      }
       var key = e.key;
 
       // --- On-screen keyboard intercept (consumes ALL keys when open) ---
@@ -1934,6 +1970,20 @@
       // Directional navigation (LRUD)
       if (key === 'ArrowUp' || key === 'ArrowDown' ||
           key === 'ArrowLeft' || key === 'ArrowRight') {
+
+        // In full screen, Left and Right seek. They must not fall through to
+        // spatial navigation: the rails are still in the DOM behind the video,
+        // so focus would move among cards nobody can see, which is
+        // indistinguishable from a dead remote.
+        if (isInFullscreen() && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+          var seekVid = document.querySelector('video');
+          e.preventDefault();
+          if (seekVid && isFinite(seekVid.duration)) {
+            var step = key === 'ArrowRight' ? 10 : -10;
+            seekVid.currentTime = Math.max(0, Math.min(seekVid.duration, seekVid.currentTime + step));
+          }
+          return;
+        }
 
         // CR4: In fullscreen only, Up/Down arrows control volume.
         // Outside fullscreen, Up/Down navigate normally even on video-player.
@@ -2449,6 +2499,14 @@
             e.preventDefault(); break;
         }
       }
+     } catch (err) {
+      // Never swallow the key AND the error. Report it where we can see it,
+      // and let the browser handle the key normally rather than trapping it.
+      try {
+        if (window.__rcuOnError) window.__rcuOnError('keydown', err, e && e.key);
+        else if (window.console) console.error('RCU keydown failed', e && e.key, err);
+      } catch (ex2) {}
+     }
     }, true); // capture phase — intercept before shadow DOM
 
     // Close the account menu when focus moves out of it.
@@ -2459,6 +2517,10 @@
 
     // Prevent keyup default for navigation keys (also capture phase)
     document.addEventListener('keyup', function(e) {
+     try {
+      if (_kbdOpen && (!_kbdOverlay || _kbdOverlay.className.indexOf('sbb-kbd-visible') === -1)) {
+        _kbdOpen = false;
+      }
       if (_kbdOpen) {
         e.preventDefault();
         e.stopPropagation();
@@ -2476,6 +2538,11 @@
           e.preventDefault();
         }
       }
+     } catch (err) {
+      try {
+        if (window.__rcuOnError) window.__rcuOnError('keyup', err, e && e.key);
+      } catch (ex2) {}
+     }
     }, true);
   }
 
