@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-v';
+  var RCU_VERSION = '2026-09-10-w';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1776,6 +1776,7 @@
     function scheduleAutoPlay() {
       if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
       _autoPlayWaits = 0;
+      _userPaused = false;
       _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
@@ -1821,93 +1822,119 @@
       vid.muted = false;
       vid.volume = 1;
 
-      if (vid.readyState === 0) {
-        // NOT a failure. Measured on the box: the element appears at 2.9s and
-        // uScreen's own loadstart is at 3.3s. readyState 0 when we look simply
-        // means it has not started yet. Handing it to hls.js here tore the
-        // stream away mid-initialisation, which is why playback was a coin
-        // toss. Let uScreen run, and only step in if it truly gets nowhere.
-        waitForPlayerThenRescue(vid, here);
-      } else {
-        enterFullscreen(vid);
-        vid.play().catch(function() {
-          vid.muted = true;
-          vid.play().then(function() { vid.muted = false; }).catch(function() {});
-        });
-        // uScreen reported progress, so we did not hand this to hls.js. If it
-        // is still sitting there a couple of seconds later, the stream failed
-        // after reporting metadata and nothing else is going to save it.
-        setTimeout(function() { rescueStalledPlayback(vid, here); }, 2500);
-      }
+      // One watcher for both faults the box reported. A single attempt could
+      // not survive either of them.
+      ensurePlaying(vid, here);
     }
 
-    // Give uScreen's player a real chance, then rescue only if it fails.
+    // Keep the video playing, rather than asking once and hoping.
     //
-    // Success looks like readyState climbing above 0, or any of loadedmetadata
-    // / canplay / playing arriving. Failure is an error, or ten seconds with
-    // nothing loaded at all. Ten seconds is generous, and generous is correct:
-    // a late start is recoverable, a stolen stream is not.
-    var RESCUE_AFTER_MS = 10000;
+    // The box reported two faults, and this handles both.
+    //
+    // 1. "The play() request was interrupted by a new load request."
+    //    uScreen reloads the element part way through starting, most often to
+    //    seek to a saved resume position. Any play() already pending is
+    //    rejected, and a one shot attempt is simply lost. The reload then
+    //    completes in a healthy state with nobody asking it to play. That is
+    //    the video that goes full screen and then sits there paused.
+    //
+    // 2. PIPELINE_ERROR_EXTERNAL_RENDERER_FAILED, media error code 4.
+    //    The hardware decoder was not available. The box has one decoder, and
+    //    a video element left behind by the page before still held it. That is
+    //    why the first video plays and the second or the third does not.
+    //
+    // So this watches for as long as a viewer would tolerate, asks again
+    // whenever the video is paused, and frees the decoder before it retries a
+    // decoder failure. It stops the moment the viewer pauses on purpose, which
+    // is the only pause we must respect.
+    var WATCH_MS = 25000;
+    var _userPaused = false;
 
-    function waitForPlayerThenRescue(vid, pageHref) {
-      var settled = false;
-      var deadline = Date.now() + RESCUE_AFTER_MS;
+    function ensurePlaying(vid, pageHref) {
+      var started = Date.now();
+      var asks = 0;
+      var reloads = 0;
+      var rescued = false;
 
-      function startPlaying() {
-        if (settled) return;
-        settled = true;
-        note('calling play', { readyState: vid.readyState, currentTime: Math.round(vid.currentTime) });
-        vid.muted = false;
-        vid.volume = 1;
-        enterFullscreen(vid);
-        vid.play().catch(function() {
-          vid.muted = true;
-          vid.play().then(function() { vid.muted = false; }).catch(function() {});
-        });
-        setTimeout(function() { rescueStalledPlayback(vid, pageHref); }, 3000);
-      }
+      var timer = null;
+      function tick() {
+        if (!document.contains(vid) || window.location.href !== pageHref) { clearInterval(timer); return; }
+        if (_userPaused) { clearInterval(timer); note('stopped: viewer paused'); return; }
+        if (Date.now() - started > WATCH_MS) { clearInterval(timer); note('watch ended'); return; }
 
-      ['loadedmetadata', 'canplay', 'playing'].forEach(function(ev) {
-        vid.addEventListener(ev, startPlaying, { once: true });
-      });
-
-      // Measured on the box: a video can reach canplay with readyState 4 and a
-      // healthy buffer and still never play, because the play() that followed
-      // was refused. Keep asking rather than assuming the first call took.
-      var nudges = 0;
-      var nudge = setInterval(function() {
-        if (!document.contains(vid) || ++nudges > 8) { clearInterval(nudge); return; }
-        if (!vid.paused) { clearInterval(nudge); return; }
-        if (vid.readyState >= 3) {
-          vid.play().catch(function() {
-            vid.muted = true;
-            vid.play().then(function() { vid.muted = false; }).catch(function() {});
-          });
+        if (!vid.paused) {
+          enterFullscreen(vid);          // guards itself, so this is a no-op once set
+          return;                        // keep watching: another reload can stop it again
         }
-      }, 1200);
 
-      (function poll() {
-        if (settled) return;
-        if (vid.readyState > 0) { startPlaying(); return; }
-        if (vid.error || Date.now() > deadline) {
-          // Nothing after ten seconds, or a hard error. Now it has failed.
-          settled = true;
-          fixVideoPlayback();
-          setTimeout(function() {
-            var v = document.querySelector('video-player video') || vid;
-            if (v && v.paused) {
-              v.muted = false;
-              enterFullscreen(v);
-              v.play().catch(function() {
-                v.muted = true;
-                v.play().then(function() { v.muted = false; }).catch(function() {});
-              });
-            }
-          }, 1800);
+        // Fault 2. The decoder was refused. Give it back whatever is holding
+        // it, then ask the element to load again.
+        if (vid.error) {
+          if (reloads < 2) {
+            reloads++;
+            note('media error, freeing the decoder', { code: vid.error.code, attempt: reloads });
+            releaseOtherVideos(vid);
+            try { vid.load(); } catch (ex) {}
+          } else if (!rescued) {
+            rescued = true;
+            note('media error persists, handing over to hls.js', { code: vid.error.code });
+            fixVideoPlayback(true);
+          }
           return;
         }
-        setTimeout(poll, 500);
-      })();
+
+        // Fault 1. Nothing is wrong with it. It is simply not playing, so ask
+        // again. Asking costs nothing, and one of these asks lands after the
+        // reload that swallowed the last one.
+        if (vid.readyState >= 1 || vid.currentSrc) {
+          asks++;
+          note('asking it to play', { attempt: asks, readyState: vid.readyState,
+                                      currentTime: Math.round(vid.currentTime) });
+          vid.muted = false;
+          vid.volume = 1;
+          vid.play().then(function() {
+            enterFullscreen(vid);
+          }).catch(function(err) {
+            note('play refused', { why: String(err && err.message || err).slice(0, 60) });
+            vid.muted = true;
+            vid.play().then(function() { vid.muted = false; enterFullscreen(vid); }).catch(function() {});
+          });
+          return;
+        }
+
+        // Nothing loaded at all after ten seconds. Now uScreen has genuinely
+        // failed, and hls.js is worth trying.
+        if (!rescued && vid.readyState === 0 && Date.now() - started > 10000) {
+          rescued = true;
+          note('handing over to hls.js');
+          fixVideoPlayback();
+        }
+      }
+
+      tick();                      // ask straight away, do not lose a second
+      timer = setInterval(tick, 1000);
+    }
+
+    // The box has one hardware decoder. Turbo keeps the page you came from,
+    // and the video element on it keeps the decoder, so the next video gets
+    // PIPELINE_ERROR_EXTERNAL_RENDERER_FAILED and never starts. Free every
+    // video element except the one we want to watch.
+    function releaseOtherVideos(keep) {
+      var vids = document.querySelectorAll('video');
+      var freed = 0;
+      for (var i = 0; i < vids.length; i++) {
+        var v = vids[i];
+        if (v === keep) continue;
+        freed++;
+        try {
+          v.pause();
+          v.removeAttribute('src');
+          v.innerHTML = '';
+          v.load();                       // this is what actually frees the decoder
+          if (v.parentNode) v.parentNode.removeChild(v);
+        } catch (ex) {}
+      }
+      return freed;
     }
 
     function rescueStalledPlayback(vid, pageHref) {
@@ -1927,10 +1954,33 @@
       }, 1800);
     }
 
+    // Hand the decoder back before we leave a page, not after the next video
+    // has already been refused it. Turbo keeps the old page in its cache, and
+    // the video element in that cache keeps the hardware decoder.
+    function releaseVideosOnLeave() {
+      var live = document.querySelector('video-player video');
+      var freed = releaseOtherVideos(live);
+      if (live) {                          // the page we are leaving: free it too
+        try { live.pause(); live.removeAttribute('src'); live.innerHTML = ''; live.load(); freed++; } catch (ex) {}
+      }
+      if (freed) note('freed video elements on leaving', { count: freed });
+    }
+    document.addEventListener('turbo:before-visit', releaseVideosOnLeave);
+    document.addEventListener('turbo:before-cache', releaseVideosOnLeave);
+
     setTimeout(enableAutoplay, 3000);
     setTimeout(setupAutoplayNext, 3000);
     scheduleAutoPlay();
     document.addEventListener('turbo:load', function() {
+      // A stale element can also survive the swap itself. Anything outside the
+      // current player is dead weight holding hardware we need.
+      var stale = document.querySelectorAll('video');
+      for (var i = 0; i < stale.length; i++) {
+        if (!stale[i].closest('video-player')) {
+          try { stale[i].pause(); stale[i].removeAttribute('src'); stale[i].load();
+                stale[i].parentNode && stale[i].parentNode.removeChild(stale[i]); } catch (ex) {}
+        }
+      }
       setTimeout(enableAutoplay, 2000);
       setTimeout(setupAutoplayNext, 2000);
       scheduleAutoPlay();
@@ -2231,9 +2281,11 @@
             // If already playing, pause in place. Stay in fullscreen: the
             // paused indicator marks the state, and Back still exits.
             if (!vid.paused) {
+              _userPaused = true;
               vid.pause();
               return;
             }
+            _userPaused = false;
             // Enter fullscreen on the video element
             enterFullscreen(vid);
             // If HLS hasn't loaded, trigger fallback then play
@@ -2474,6 +2526,7 @@
         switch (key) {
           case 'MediaPlayPause':
             if (video.paused) {
+              _userPaused = false;   // the viewer wants it playing again
               video.muted = false;
               video.volume = 1;
               // If play is refused the player is dead, which on this box means
@@ -2492,6 +2545,7 @@
               enterFullscreen(video);
             } else {
               // Pause holds fullscreen. Only Back and Stop leave it.
+              _userPaused = true;
               video.pause();
             }
             e.preventDefault(); break;
@@ -2505,6 +2559,7 @@
             if (pTag !== 'INPUT' && pTag !== 'TEXTAREA') {
               // Pause holds fullscreen. Dropping out of fullscreen here is
               // what produced Foxtel's "quarter-screen view" on Pause.
+              _userPaused = true;
               video.pause();
               e.preventDefault();
             }
