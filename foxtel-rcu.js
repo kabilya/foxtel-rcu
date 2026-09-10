@@ -20,11 +20,18 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-d';
+  var RCU_VERSION = '2026-09-10-e';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
-  var isSBB = /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent);
+  // Every screen gets the television treatment. The Seniors Channel is only
+  // consumed on a television, so there is nothing to protect a browser user
+  // from, and a browser that behaves identically to the box is the only
+  // practical way to test this.
+  //
+  // Kept for reference, and in case a device-only branch is ever needed again:
+  //   /ADBChromium|Foxtel_STB|Linux aarch64/i.test(navigator.userAgent)
+  var isSBB = true;
 
   // Mark the document NOW, not on DOMContentLoaded.
   //
@@ -227,7 +234,12 @@
           deduped.push(el2);
           continue;
         }
-        var href = el2.href;
+        // Compare the path, not the whole URL. uScreen adds a query string to
+        // the image link but not the title link, so identical destinations
+        // looked different and every card offered two focus targets.
+        var href;
+        try { href = new URL(el2.href, location.origin).pathname; }
+        catch (ex) { href = el2.href; }
         var r2 = el2.getBoundingClientRect();
         var cy2 = r2.top + r2.height / 2;
         var area2 = r2.width * r2.height;
@@ -1309,7 +1321,13 @@
     // done in CSS. We change the instance and let Swiper recompute widths,
     // scroll steps and the navigation arrows itself.
     var CARDS_PER_ROW = 3;
-    var CARD_SCALE = 0.9;   // 10% smaller, so the lift has somewhere to go
+    // The gap does the shrinking. Taking 56px between cards makes each card
+    // about 8% narrower than a perfect three-way split, and leaves real space
+    // for the 6% lift to grow into instead of eating the gap. Shrinking the
+    // card on its own did not work: flexbox puts the leftover at the end of
+    // the row, not between the cards.
+    var CARD_GAP = 56;
+    var CARD_SCALE = 1;
 
     function swiperOf(ds) {
       try {
@@ -1327,6 +1345,7 @@
         if (sw.params.slidesPerView === CARDS_PER_ROW && sw.__rcuPinned) continue;
         sw.params.slidesPerView = CARDS_PER_ROW;
         sw.params.slidesPerGroup = CARDS_PER_ROW;
+        sw.params.spaceBetween = CARD_GAP;   // Swiper writes this to the slides
         // Breakpoints re-apply their own slidesPerView on every resize and on
         // init, so they have to go or they will undo this.
         sw.params.breakpoints = {};
@@ -1374,7 +1393,7 @@
           var railStyle = getComputedStyle(rails[i]);
           railWidth -= (parseFloat(railStyle.paddingLeft) || 0) +
                        (parseFloat(railStyle.paddingRight) || 0);
-          var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || 18;
+          var gap = parseFloat(getComputedStyle(slides[0]).marginRight) || CARD_GAP;
           // CARD_SCALE leaves slack so a focused card can grow without eating
           // the gap or being clipped at the left edge of the rail.
           var w = Math.floor(((railWidth - gap * (CARDS_PER_ROW - 1)) / CARDS_PER_ROW) * CARD_SCALE);
