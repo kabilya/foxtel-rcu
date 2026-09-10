@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-i';
+  var RCU_VERSION = '2026-09-10-j';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1420,8 +1420,23 @@
     function pollForRails() {
       _railTimer = null;
       setCardsPerRow();
-      var ready = document.querySelectorAll('ds-swiper swiper-slide').length > 0;
-      if (ready || ++_railTries > 12) return;   // about 6 seconds, then stop
+      _railTries++;
+
+      // Stop only when EVERY rail on the page is done, and not before a few
+      // seconds have passed, because rails render one after another. Stopping
+      // at "the first rail has slides" left every later rail untouched, which
+      // is why some rows showed three cards and others five.
+      //
+      // Polling on is cheap: setCardsPerRow skips a rail it has already
+      // pinned, and sizeSlidesToRail skips one whose width has not moved.
+      var rails = document.querySelectorAll('ds-swiper');
+      var allDone = rails.length > 0;
+      for (var i = 0; i < rails.length; i++) {
+        var sw = swiperOf(rails[i]);
+        if (!sw || !sw.__rcuPinned) { allDone = false; break; }
+      }
+      if (allDone && _railTries >= 8) return;   // settled, and gave late rails a chance
+      if (_railTries > 30) return;              // hard stop at about 15 seconds
       _railTimer = setTimeout(pollForRails, 500);
     }
 
