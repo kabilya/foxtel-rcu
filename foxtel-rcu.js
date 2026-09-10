@@ -2030,6 +2030,21 @@
       return true;
     }
 
+    // Turning the volume up on a muted video does nothing, because a muted
+    // element ignores volume. The viewer pressed a volume key, so they want to
+    // hear it: take the mute off and stop trying to put it back.
+    function unmuteForVolume(vid) {
+      if (!vid) return;
+      _soundBlocked = false;
+      _wantSoundBack = false;
+      _unmutedAt = 0;
+      if (vid.muted) {
+        vid.muted = false;
+        if (vid.volume === 0) vid.volume = 0.5;   // do not hand back silence
+        note('the viewer asked for sound');
+      }
+    }
+
     function hasInteracted() {
       try {
         if (navigator.userActivation) return !!navigator.userActivation.hasBeenActive;
@@ -2200,9 +2215,11 @@
           var volVid = document.querySelector('video');
           if (volVid) {
             if (key === 'ArrowUp') {
+              unmuteForVolume(volVid);
               volVid.volume = Math.min(1, Math.round((volVid.volume + 0.1) * 10) / 10);
               volVid.muted = false;
             } else {
+              unmuteForVolume(volVid);
               volVid.volume = Math.max(0, Math.round((volVid.volume - 0.1) * 10) / 10);
             }
             showVolumeIndicator(volVid.volume);
@@ -2642,9 +2659,11 @@
         var volVideo = document.querySelector('video');
         if (volVideo) {
           if (key === 'VolumeUp' || key === 'AudioVolumeUp') {
+            unmuteForVolume(volVideo);
             volVideo.volume = Math.min(1, Math.round((volVideo.volume + 0.1) * 10) / 10);
             volVideo.muted = false;
           } else {
+            unmuteForVolume(volVideo);
             volVideo.volume = Math.max(0, Math.round((volVideo.volume - 0.1) * 10) / 10);
           }
           showVolumeIndicator(volVideo.volume);
