@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-h';
+  var RCU_VERSION = '2026-09-10-i';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1532,60 +1532,88 @@
     var _hlsInstance = null;
     var HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.7/+esm';
 
-    // Attach at most once per page. Calling this repeatedly destroys an HLS
-    // player that is still loading and starts again, so the video never gets
-    // far enough to play and the box reports that it is not loaded.
+    // --- Taking over from uScreen's player when it fails on the box ---
+    //
+    // uScreen drives the <video> with its own Media Source player and feeds it
+    // a blob: source. On the box's Chromium 105 that often fails, and the
+    // player shows "The video could not be loaded". That is the whole reason
+    // this fallback exists.
+    //
+    // The rule is about PROGRESS, not about what is attached. Refusing to act
+    // whenever a blob was present meant standing down in exactly the case we
+    // are here to rescue, because uScreen attaches its blob and only then fails.
     var _hlsFor = null;
+    var _hlsModule = null;
+
+    // Fetch hls.js early on a page that has a player, so the rescue does not
+    // also have to wait for a network round trip at the worst moment.
+    function preloadHls() {
+      if (_hlsModule) return;
+      if (!document.querySelector('video-player, video')) return;
+      import(HLS_CDN).then(function(m) { _hlsModule = m; })
+                     .catch(function() {});
+    }
+
+    function playerIsWorking(vid) {
+      if (vid.error) return false;
+      // Anything buffered at all means uScreen is getting somewhere.
+      return vid.readyState > 0 || vid.currentTime > 0;
+    }
+
+    function hlsSourceFor(vid) {
+      var source = vid.querySelector('source');
+      var src = source && source.src ? source.src : '';
+      return src.indexOf('.m3u8') !== -1 ? src : null;
+    }
 
     function fixVideoPlayback() {
       var vp = document.querySelector('video-player');
       if (!vp) return;
       var vid = vp.querySelector('video');
       if (!vid) return;
-      // Only intervene if the video hasn't loaded (readyState 0 = HAVE_NOTHING)
-      if (vid.readyState > 0) return;
-      // uScreen drives this <video> with its own Media Source player and feeds
-      // it a blob: source. Attaching hls.js on top puts two players on one
-      // element and neither wins. If a blob is already there, stay out of it.
-      if (vid.currentSrc && vid.currentSrc.indexOf('blob:') === 0) return;
-      if (vid.src && vid.src.indexOf('blob:') === 0) return;
-      if (_hlsFor === window.location.href) return; // already attached here
-      _hlsFor = window.location.href;               // set before the async import
-      var source = vid.querySelector('source');
-      if (!source || !source.src) return;
-      var src = source.src;
-      // Only fix .m3u8 (HLS) streams
-      if (src.indexOf('.m3u8') === -1) return;
+      if (playerIsWorking(vid)) return;             // leave a healthy player alone
+      if (_hlsFor === window.location.href) return; // one takeover per page
+      var src = hlsSourceFor(vid);
+      if (!src) return;
+      _hlsFor = window.location.href;               // set before the async work
 
-      // Dynamically import hls.js and attach to the video
-      import(HLS_CDN).then(function(m) {
-        var Hls = m.default;
-        if (!Hls.isSupported()) return;
-        // Clean up any previous instance
-        if (_hlsInstance) {
-          _hlsInstance.destroy();
-          _hlsInstance = null;
-        }
+      var attach = function(m) {
+        var Hls = m && m.default;
+        if (!Hls || !Hls.isSupported()) return;
+        if (_hlsInstance) { try { _hlsInstance.destroy(); } catch (ex) {} _hlsInstance = null; }
+        // Detach whatever uScreen left behind, or two players end up on one
+        // element and neither of them wins.
+        try {
+          vid.removeAttribute('src');
+          vid.load();
+        } catch (ex) {}
         var hls = new Hls();
         _hlsInstance = hls;
         hls.loadSource(src);
         hls.attachMedia(vid);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          vid.play().catch(function() {
+            vid.muted = true;
+            vid.play().then(function() { vid.muted = false; }).catch(function() {});
+          });
+        });
         hls.on(Hls.Events.ERROR, function(event, data) {
-          if (data.fatal) {
-            console.log('RCU: HLS fatal error', data.type, data.details);
-            hls.destroy();
+          if (data && data.fatal) {
+            try { hls.destroy(); } catch (ex) {}
             _hlsInstance = null;
           }
         });
-      }).catch(function(e) {
-        console.log('RCU: failed to load hls.js', e.message);
-      });
+      };
+
+      if (_hlsModule) attach(_hlsModule);
+      else import(HLS_CDN).then(function(m) { _hlsModule = m; attach(m); }).catch(function() {});
     }
 
     function scheduleVideoFix() {
-      _hlsFor = null; // new page, allow one attach
-      // Six seconds, not two. uScreen is usually playing well before this and
-      // then the guards above make this a no-op.
+      _hlsFor = null; // new page, allow one takeover
+      preloadHls();
+      // Six seconds. uScreen is usually playing well before this, and then
+      // playerIsWorking makes this a no-op.
       setTimeout(fixVideoPlayback, 6000);
     }
     scheduleVideoFix();
