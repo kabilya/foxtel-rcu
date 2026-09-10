@@ -1928,15 +1928,7 @@
           asks++;
           note('asking it to play', { attempt: asks, readyState: vid.readyState,
                                       currentTime: Math.round(vid.currentTime) });
-          vid.muted = false;
-          vid.volume = 1;
-          vid.play().then(function() {
-            enterFullscreen(vid);
-          }).catch(function(err) {
-            note('play refused', { why: String(err && err.message || err).slice(0, 60) });
-            vid.muted = true;
-            vid.play().then(function() { vid.muted = false; enterFullscreen(vid); }).catch(function() {});
-          });
+          playWithSound(vid);
           return;
         }
 
@@ -1952,6 +1944,47 @@
       tick();                      // ask straight away, do not lose a second
       timer = setInterval(tick, 1000);
     }
+
+    // Play with sound where the browser allows it, and never let the attempt
+    // to have sound be the reason nothing plays.
+    //
+    // A browser refuses an unmuted play until the viewer has interacted with
+    // the page. Worse, unmuting a video that was allowed to start muted pauses
+    // it again straight away. Measured in Chrome: play refused, muted play
+    // succeeds, the unmute pauses it, the watcher plays it again, and the
+    // video stutters instead of running. So unmute once, and if that is what
+    // stopped it, leave the sound off and wait for a real key press.
+    var _mustStayMuted = false;
+
+    function canPlayWithSound() {
+      try {
+        if (navigator.userActivation) return !!navigator.userActivation.hasBeenActive;
+      } catch (ex) {}
+      return true;                       // older engines: try, and fall back
+    }
+
+    function playWithSound(vid) {
+      var wantSound = !_mustStayMuted && canPlayWithSound();
+      vid.muted = !wantSound;
+      if (wantSound) vid.volume = 1;
+      vid.play().then(function() {
+        enterFullscreen(vid);
+      }).catch(function(err) {
+        note('play refused', { why: String(err && err.message || err).slice(0, 60) });
+        _mustStayMuted = true;           // sound is what it objected to
+        vid.muted = true;
+        vid.play().then(function() { enterFullscreen(vid); }).catch(function() {});
+      });
+    }
+
+    // The viewer pressing any key is the interaction the browser was waiting
+    // for. Give the sound back at the first press.
+    document.addEventListener('keydown', function() {
+      if (!_mustStayMuted) return;
+      _mustStayMuted = false;
+      var v = document.querySelector('video-player video');
+      if (v && v.muted) { v.muted = false; v.volume = 1; }
+    }, true);
 
     // Is there anything to play just past where we are sitting? Without this,
     // a video that is simply buffering would look exactly like a frozen one.
