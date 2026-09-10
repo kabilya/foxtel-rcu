@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-e';
+  var RCU_VERSION = '2026-09-10-f';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1552,6 +1552,11 @@
       if (!vid) return;
       // Only intervene if the video hasn't loaded (readyState 0 = HAVE_NOTHING)
       if (vid.readyState > 0) return;
+      // uScreen drives this <video> with its own Media Source player and feeds
+      // it a blob: source. Attaching hls.js on top puts two players on one
+      // element and neither wins. If a blob is already there, stay out of it.
+      if (vid.currentSrc && vid.currentSrc.indexOf('blob:') === 0) return;
+      if (vid.src && vid.src.indexOf('blob:') === 0) return;
       if (_hlsFor === window.location.href) return; // already attached here
       _hlsFor = window.location.href;               // set before the async import
       var source = vid.querySelector('source');
@@ -1587,7 +1592,9 @@
 
     function scheduleVideoFix() {
       _hlsFor = null; // new page, allow one attach
-      setTimeout(fixVideoPlayback, 2000);
+      // Six seconds, not two. uScreen is usually playing well before this and
+      // then the guards above make this a no-op.
+      setTimeout(fixVideoPlayback, 6000);
     }
     scheduleVideoFix();
     document.addEventListener('turbo:load', scheduleVideoFix);
@@ -1688,9 +1695,11 @@
 
       vid.muted = false;
       vid.volume = 1;
-      // Only once, and only on the first attempt. fixVideoPlayback guards
-      // itself as well, but do not even ask on later retries.
-      if (_autoPlayTries === 1 && vid.readyState === 0 && isSBB) fixVideoPlayback();
+      // Give uScreen's own player time before falling back. It attaches a
+      // Media Source player asynchronously, and intervening at 1.5 seconds
+      // was landing in the middle of that. By the fourth attempt it has had
+      // about six seconds, which is long enough to judge it as failed.
+      if (_autoPlayTries === 4 && vid.readyState === 0) fixVideoPlayback();
 
       // Go full screen only once the video is genuinely playing. Entering
       // first meant a failed start left a black full screen with nothing in
