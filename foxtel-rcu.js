@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-r';
+  var RCU_VERSION = '2026-09-10-s';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1795,20 +1795,12 @@
       vid.volume = 1;
 
       if (vid.readyState === 0) {
-        // Nothing loaded. Hand it to hls.js, give it a moment, then play.
-        fixVideoPlayback();
-        setTimeout(function() {
-          var v = document.querySelector('video-player video');
-          if (v && v.paused) {
-            v.muted = false;
-            v.volume = 1;
-            enterFullscreen(v);
-            v.play().catch(function() {
-              v.muted = true;
-              v.play().then(function() { v.muted = false; }).catch(function() {});
-            });
-          }
-        }, 1500);
+        // NOT a failure. Measured on the box: the element appears at 2.9s and
+        // uScreen's own loadstart is at 3.3s. readyState 0 when we look simply
+        // means it has not started yet. Handing it to hls.js here tore the
+        // stream away mid-initialisation, which is why playback was a coin
+        // toss. Let uScreen run, and only step in if it truly gets nowhere.
+        waitForPlayerThenRescue(vid, here);
       } else {
         enterFullscreen(vid);
         vid.play().catch(function() {
@@ -1820,6 +1812,59 @@
         // after reporting metadata and nothing else is going to save it.
         setTimeout(function() { rescueStalledPlayback(vid, here); }, 2500);
       }
+    }
+
+    // Give uScreen's player a real chance, then rescue only if it fails.
+    //
+    // Success looks like readyState climbing above 0, or any of loadedmetadata
+    // / canplay / playing arriving. Failure is an error, or ten seconds with
+    // nothing loaded at all. Ten seconds is generous, and generous is correct:
+    // a late start is recoverable, a stolen stream is not.
+    var RESCUE_AFTER_MS = 10000;
+
+    function waitForPlayerThenRescue(vid, pageHref) {
+      var settled = false;
+      var deadline = Date.now() + RESCUE_AFTER_MS;
+
+      function startPlaying() {
+        if (settled) return;
+        settled = true;
+        vid.muted = false;
+        vid.volume = 1;
+        enterFullscreen(vid);
+        vid.play().catch(function() {
+          vid.muted = true;
+          vid.play().then(function() { vid.muted = false; }).catch(function() {});
+        });
+        setTimeout(function() { rescueStalledPlayback(vid, pageHref); }, 3000);
+      }
+
+      ['loadedmetadata', 'canplay', 'playing'].forEach(function(ev) {
+        vid.addEventListener(ev, startPlaying, { once: true });
+      });
+
+      (function poll() {
+        if (settled) return;
+        if (vid.readyState > 0) { startPlaying(); return; }
+        if (vid.error || Date.now() > deadline) {
+          // Nothing after ten seconds, or a hard error. Now it has failed.
+          settled = true;
+          fixVideoPlayback();
+          setTimeout(function() {
+            var v = document.querySelector('video-player video') || vid;
+            if (v && v.paused) {
+              v.muted = false;
+              enterFullscreen(v);
+              v.play().catch(function() {
+                v.muted = true;
+                v.play().then(function() { v.muted = false; }).catch(function() {});
+              });
+            }
+          }, 1800);
+          return;
+        }
+        setTimeout(poll, 500);
+      })();
     }
 
     function rescueStalledPlayback(vid, pageHref) {

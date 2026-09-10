@@ -7,7 +7,7 @@
    stylesheet and the script are from different deploys. The two are separate
    <link> and <script> tags, so it is easy to update one and forget the other,
    and the result is a page that is half fixed with no obvious cause. */
-:root { --rcu-build: "2026-09-10-r"; }
+:root { --rcu-build: "2026-09-10-s"; }
 
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
