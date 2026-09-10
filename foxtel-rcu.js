@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-w';
+  var RCU_VERSION = '2026-09-10-x';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1777,6 +1777,9 @@
       if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
       _autoPlayWaits = 0;
       _userPaused = false;
+      _wantSoundBack = false;
+      _soundBlocked = false;
+      _unmutedAt = 0;
       _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
@@ -1858,8 +1861,28 @@
     // is the only pause we must respect.
     var WATCH_MS = 25000;
     var _userPaused = false;
+    var _lastKeyAt = 0;
+
+    // Whatever the remote sends, and whoever handles it, a pause that follows
+    // a key press within a second belongs to the viewer. Naming every key that
+    // can stop a video was never going to hold: Stop did not set the flag, so
+    // the watcher started the video again and the viewer had to press Stop
+    // three times.
+    document.addEventListener('keydown', function() { _lastKeyAt = Date.now(); }, true);
+
+    function watchForViewerPause(vid) {
+      if (vid.__rcuPauseWatch) return;
+      vid.__rcuPauseWatch = true;
+      vid.addEventListener('pause', function() {
+        if (Date.now() - _lastKeyAt < 1000) {
+          _userPaused = true;
+          note('the viewer stopped it');
+        }
+      });
+    }
 
     function ensurePlaying(vid, pageHref) {
+      watchForViewerPause(vid);
       var started = Date.now();
       var asks = 0;
       var reloads = 0;
@@ -1875,6 +1898,7 @@
 
         if (!vid.paused) {
           enterFullscreen(vid);          // guards itself, so this is a no-op once set
+          mindTheSound(vid);
 
           // Fault 3, and the one that looks worst to a viewer. The element
           // says it is playing, it has data buffered, and the clock does not
@@ -1904,6 +1928,9 @@
           }
           return;                        // keep watching: another reload can stop it again
         }
+
+        // It is paused. If we had just turned the sound on, that is why.
+        if (soundStoppedIt(vid)) { playWithSound(vid); return; }
 
         // Fault 2. The decoder was refused. Give it back whatever is holding
         // it, then ask the element to load again.
@@ -1945,45 +1972,76 @@
       timer = setInterval(tick, 1000);
     }
 
-    // Play with sound where the browser allows it, and never let the attempt
-    // to have sound be the reason nothing plays.
+    // Always ask for sound first, and if the browser says no, keep asking.
     //
-    // A browser refuses an unmuted play until the viewer has interacted with
-    // the page. Worse, unmuting a video that was allowed to start muted pauses
-    // it again straight away. Measured in Chrome: play refused, muted play
-    // succeeds, the unmute pauses it, the watcher plays it again, and the
-    // video stutters instead of running. So unmute once, and if that is what
-    // stopped it, leave the sound off and wait for a real key press.
-    var _mustStayMuted = false;
+    // Two facts, both measured. A browser refuses an unmuted play until the
+    // viewer has interacted with the page. And unmuting a video that was only
+    // allowed to start because it was muted pauses it again at once.
+    //
+    // So: try with sound. Only mute if that exact attempt is refused, and then
+    // put the sound back at the first key press. If putting it back is what
+    // stopped the video, leave it quiet rather than stutter.
+    //
+    // Never decide in advance to mute. A silent video that plays perfectly is
+    // still a broken video, and nothing would ever have turned the sound on.
+    var _wantSoundBack = false;   // playing without sound, against our wishes
+    var _soundBlocked = false;    // turning it on stopped the video, so leave it
+    var _unmutedAt = 0;           // when we last turned it on, to see what happened
 
-    function canPlayWithSound() {
+    function playWithSound(vid) {
+      if (!_wantSoundBack && !_soundBlocked) { vid.muted = false; vid.volume = 1; }
+      vid.play().then(function() {
+        enterFullscreen(vid);
+      }).catch(function(err) {
+        note('play refused', { why: String(err && err.message || err).slice(0, 60) });
+        vid.muted = true;                          // sound is what it objected to
+        if (!_soundBlocked) _wantSoundBack = true;
+        vid.play().then(function() { enterFullscreen(vid); }).catch(function() {});
+      });
+    }
+
+    // Called every second while a video plays. Puts the sound back as soon as
+    // the browser will accept it, and watches what happens next.
+    function mindTheSound(vid) {
+      if (_unmutedAt) {
+        if (Date.now() - _unmutedAt > 900) {       // it survived, so it is fine
+          _unmutedAt = 0;
+          _wantSoundBack = false;
+          note('the sound is back on');
+        }
+        return;
+      }
+      if (!_wantSoundBack || _soundBlocked || !vid.muted) return;
+      if (!hasInteracted()) return;                // the browser will only refuse
+      vid.muted = false;
+      vid.volume = 1;
+      _unmutedAt = Date.now();
+    }
+
+    // Did turning the sound on stop the video? Only the pause that follows an
+    // unmute tells us that.
+    function soundStoppedIt(vid) {
+      if (!_unmutedAt) return false;
+      note('the sound is what stopped it, staying quiet');
+      _soundBlocked = true;
+      _wantSoundBack = false;
+      _unmutedAt = 0;
+      vid.muted = true;
+      return true;
+    }
+
+    function hasInteracted() {
       try {
         if (navigator.userActivation) return !!navigator.userActivation.hasBeenActive;
       } catch (ex) {}
       return true;                       // older engines: try, and fall back
     }
 
-    function playWithSound(vid) {
-      var wantSound = !_mustStayMuted && canPlayWithSound();
-      vid.muted = !wantSound;
-      if (wantSound) vid.volume = 1;
-      vid.play().then(function() {
-        enterFullscreen(vid);
-      }).catch(function(err) {
-        note('play refused', { why: String(err && err.message || err).slice(0, 60) });
-        _mustStayMuted = true;           // sound is what it objected to
-        vid.muted = true;
-        vid.play().then(function() { enterFullscreen(vid); }).catch(function() {});
-      });
-    }
-
-    // The viewer pressing any key is the interaction the browser was waiting
-    // for. Give the sound back at the first press.
+    // Any key from the remote is the interaction the browser was waiting for.
     document.addEventListener('keydown', function() {
-      if (!_mustStayMuted) return;
-      _mustStayMuted = false;
+      if (!_wantSoundBack || _soundBlocked || _unmutedAt) return;
       var v = document.querySelector('video-player video');
-      if (v && v.muted) { v.muted = false; v.volume = 1; }
+      if (v && v.muted && !v.paused) { v.muted = false; v.volume = 1; _unmutedAt = Date.now(); }
     }, true);
 
     // Is there anything to play just past where we are sitting? Without this,
@@ -2633,6 +2691,7 @@
             }
             e.preventDefault(); break;
           case 'MediaStop':
+            _userPaused = true;
             video.pause(); video.currentTime = 0;
             exitFullscreen();
             e.preventDefault(); break;
