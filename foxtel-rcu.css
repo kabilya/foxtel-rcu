@@ -268,6 +268,14 @@ body.rcu-fullscreen-active .footer {
     display: none !important;
 }
 
+/* Hide the category tags below the video ("Story Telling - Click here to see
+   all"). They are "See All" links with a longer text, so the rule above did
+   not catch them. On the box, selecting one went to a black screen (Foxtel
+   FOX-2956). Hidden also means the remote cannot reach it. */
+.foxtel-sbb .content-categories {
+    display: none !important;
+}
+
 /* Category / section headings */
 .foxtel-sbb .category-title {
     font-size: 1.4em !important;
