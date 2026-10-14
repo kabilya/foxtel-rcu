@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-09-10-x';
+  var RCU_VERSION = '2026-10-14-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1728,6 +1728,12 @@
           if (list.length) { try { getFocusTarget(list[0]).focus(); } catch (ex) {} }
         }
       }, 300);
+      // In a collection, the player names the video that follows this one.
+      // The viewer chose "Start watching" on a collection, so go on to it
+      // (Foxtel FOX-2957). replace() keeps the history short: Back from the
+      // fifth video must not walk through the four before it.
+      var nextUrl = nextInCollection();
+      if (nextUrl) { window.location.replace(nextUrl); return; }
       // Look for "next video" section on the page
       var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
       if (nextSection) {
@@ -1738,6 +1744,43 @@
       // The old fallback jumped to the first /programs/ link found anywhere on
       // the page. On a collection screen that link is arbitrary, which is one
       // half of the endless auto-play loop Foxtel reported.
+    }
+
+    // The next video of the collection, or null. uScreen puts the id of the
+    // next video on the player. Null at the end of the collection: the id
+    // must be a video that comes AFTER this one in the list, so the last
+    // video can never send the viewer round to the first (the endless loop
+    // Foxtel reported before).
+    function nextInCollection() {
+      try {
+        var vp = document.querySelector('video-player');
+        if (!vp) return null;
+        if (vp.getAttribute('data-program-video-content-type-value') !== 'collection') return null;
+        var nextId = vp.getAttribute('data-program-video-next-video-id-value') || '';
+        if (!/^[1-9]\d*$/.test(nextId)) { note('collection: no next video'); return null; }
+        var here = (/[?&]cid=(\d+)/.exec(window.location.search) || [])[1] || '';
+        if (nextId === here) return null;
+
+        var links = document.querySelectorAll('a[href*="cid="]');
+        var order = [], hrefs = {};
+        for (var i = 0; i < links.length; i++) {
+          var id = (/[?&]cid=(\d+)/.exec(links[i].getAttribute('href') || '') || [])[1];
+          if (id && !hrefs[id]) { hrefs[id] = links[i].href; order.push(id); }
+        }
+        if (!order.length) {
+          // No list on the page to check against. Trust the player.
+          note('collection: next video', { to: nextId, list: 'none' });
+          return window.location.pathname + '?cid=' + nextId;
+        }
+        var nextAt = order.indexOf(nextId);
+        var hereAt = order.indexOf(here);
+        if (nextAt === -1 || nextAt <= hereAt) {
+          note('collection: end of the list', { next: nextId });
+          return null;
+        }
+        note('collection: next video', { to: nextId, at: nextAt + 1, of: order.length });
+        return hrefs[nextId];
+      } catch (ex) { return null; }
     }
 
     function setupAutoplayNext() {
@@ -1780,6 +1823,7 @@
       _wantSoundBack = false;
       _soundBlocked = false;
       _unmutedAt = 0;
+      _reloadAt = 0;
       _autoPlayTimer = setTimeout(autoPlayVideo, 3000);
     }
 
@@ -1879,6 +1923,16 @@
           note('the viewer stopped it');
         }
       });
+      // uScreen reloads the element while it starts. A reload pauses the
+      // video, and that pause must not be blamed on the sound.
+      // The end of the video is watched from here too. The other place that
+      // listens looks once, three seconds after the page loads, and on a
+      // slow box the element is not there yet.
+      vid.removeEventListener('ended', onVideoEnded);
+      vid.addEventListener('ended', onVideoEnded);
+      function reloaded() { _reloadAt = Date.now(); }
+      vid.addEventListener('emptied', reloaded);
+      vid.addEventListener('loadstart', reloaded);
     }
 
     function ensurePlaying(vid, pageHref) {
@@ -1987,13 +2041,24 @@
     var _wantSoundBack = false;   // playing without sound, against our wishes
     var _soundBlocked = false;    // turning it on stopped the video, so leave it
     var _unmutedAt = 0;           // when we last turned it on, to see what happened
+    var _reloadAt = 0;            // when uScreen last reloaded the element
 
     function playWithSound(vid) {
       if (!_wantSoundBack && !_soundBlocked) { vid.muted = false; vid.volume = 1; }
       vid.play().then(function() {
         enterFullscreen(vid);
       }).catch(function(err) {
-        note('play refused', { why: String(err && err.message || err).slice(0, 60) });
+        var name = String(err && err.name || '');
+        var why = String(err && err.message || err);
+        note('play refused', { why: why.slice(0, 60), name: name });
+        // One refusal has nothing to do with sound: AbortError, "interrupted
+        // by a new load request", which is uScreen's reload. On the box every
+        // refusal measured was that one. Muting for it left the first video
+        // after boot silent until the viewer pressed Pause and Play (Foxtel
+        // FOX-2941). The watcher asks again in a second. Any other refusal
+        // still falls back to a muted start, so sound can never be the reason
+        // nothing plays.
+        if (name === 'AbortError' || /interrupted by a new load/i.test(why)) return;
         vid.muted = true;                          // sound is what it objected to
         if (!_soundBlocked) _wantSoundBack = true;
         vid.play().then(function() { enterFullscreen(vid); }).catch(function() {});
@@ -2022,6 +2087,13 @@
     // unmute tells us that.
     function soundStoppedIt(vid) {
       if (!_unmutedAt) return false;
+      if (_reloadAt >= _unmutedAt) {
+        // A reload arrived after the sound went on, and a reload pauses the
+        // video by itself. The sound stays on and the watcher asks again.
+        _unmutedAt = 0;
+        note('a reload stopped it, not the sound');
+        return false;
+      }
       note('the sound is what stopped it, staying quiet');
       _soundBlocked = true;
       _wantSoundBack = false;
@@ -2143,6 +2215,52 @@
     });
 
     // --- Main keydown handler ---
+    // --- Back, one page at a time, and never out of the app ---
+    //
+    // Foxtel FOX-2960: after a few rounds of play and Back, Back gave a black
+    // screen that nothing could leave. Two things in the old code could do it.
+    // Every Back press called history.back() again, so two fast presses went
+    // back two pages, and the page before the first page of the app is an
+    // empty one with no script on it. And the check that followed waited only
+    // 300 ms before it also loaded the home screen, on top of a page change
+    // that a slow box had not finished.
+    var _backBusyUntil = 0;
+
+    // Is the page before this one a page of the app? true, false, or null
+    // when the browser cannot tell us.
+    function previousPageInApp() {
+      try {
+        var nav = window.navigation;
+        if (!nav || !nav.currentEntry || typeof nav.entries !== 'function') return null;
+        var at = nav.currentEntry.index;
+        if (at <= 0) return false;
+        var prev = nav.entries()[at - 1];
+        return !!(prev && prev.url && prev.url.indexOf(window.location.origin + '/') === 0);
+      } catch (ex) { return null; }
+    }
+
+    function goHomeUnlessThere() {
+      if (/^\/catalog\/?$/.test(window.location.pathname) && !window.location.search) return;
+      window.location.href = '/catalog';
+    }
+
+    function goBackOnce() {
+      var now = Date.now();
+      if (now < _backBusyUntil) return;          // a page change is under way
+      _backBusyUntil = now + 2500;
+      var known = previousPageInApp();
+      if (known === false) { goHomeUnlessThere(); return; }
+      var beforeBack = window.location.href;
+      window.history.back();
+      // The safety net. When the browser said there is a page to go back to,
+      // give a slow box time to get there before we decide it did not.
+      setTimeout(function() {
+        if (window.location.href === beforeBack) goHomeUnlessThere();
+      }, known ? 1500 : 300);
+    }
+    // The new page is here, so Back can work again after a moment to settle.
+    document.addEventListener('turbo:load', function() { _backBusyUntil = Date.now() + 400; });
+
     // Use CAPTURE phase (true) so we intercept keys before shadow DOM
     // elements like <ds-input> can consume them
     // Everything inside runs in a try/catch. A remote that stops responding is
@@ -2614,16 +2732,7 @@
           e.preventDefault();
           return;
         }
-        // Go back. If no history (common on SBB), fall back to catalog/home.
-        var beforeBack = window.location.href;
-        window.history.back();
-        // Check after a short delay if navigation happened
-        setTimeout(function() {
-          if (window.location.href === beforeBack) {
-            // history.back() didn't navigate — go to catalog
-            window.location.href = '/catalog';
-          }
-        }, 300);
+        goBackOnce();
         e.preventDefault();
         return;
       }
