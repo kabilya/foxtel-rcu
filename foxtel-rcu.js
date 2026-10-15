@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-14-a';
+  var RCU_VERSION = '2026-10-15-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1733,7 +1733,7 @@
       // (Foxtel FOX-2957). replace() keeps the history short: Back from the
       // fifth video must not walk through the four before it.
       var nextUrl = nextInCollection();
-      if (nextUrl) { window.location.replace(nextUrl); return; }
+      if (nextUrl) { goToNextVideo(nextUrl); return; }
       // Look for "next video" section on the page
       var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
       if (nextSection) {
@@ -1744,6 +1744,38 @@
       // The old fallback jumped to the first /programs/ link found anywhere on
       // the page. On a collection screen that link is arbitrary, which is one
       // half of the endless auto-play loop Foxtel reported.
+    }
+
+    // Go to the next video the way every other page change in the app goes:
+    // with Turbo, in the same page.
+    //
+    // Foxtel FOX-3001: after four to eleven videos of a playlist, the screen
+    // went black and only Home got out. Each step was a full page load. The
+    // page that went black never ran its scripts at all (no Sentry event from
+    // it, where every page that loads sends one), so the load itself failed.
+    // A Turbo visit keeps this page and its scripts alive, frees the decoder
+    // first (turbo:before-visit), and if the next page does not arrive, the
+    // script is still here to try the full load instead.
+    var NEXT_VIDEO_WAIT_MS = 20000;
+    function goToNextVideo(url) {
+      var T = window.Turbo;
+      if (!T || typeof T.visit !== 'function') { window.location.replace(url); return; }
+      var arrived = false;
+      function onArrive() { arrived = true; document.removeEventListener('turbo:load', onArrive); }
+      document.addEventListener('turbo:load', onArrive);
+      try {
+        T.visit(url, { action: 'replace' });
+      } catch (ex) {
+        document.removeEventListener('turbo:load', onArrive);
+        window.location.replace(url);
+        return;
+      }
+      setTimeout(function() {
+        if (arrived) return;
+        document.removeEventListener('turbo:load', onArrive);
+        note('the next video did not arrive, loading the page');
+        window.location.replace(url);
+      }, NEXT_VIDEO_WAIT_MS);
     }
 
     // The next video of the collection, or null. uScreen puts the id of the

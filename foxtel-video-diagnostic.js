@@ -4,6 +4,9 @@
  * Sends ONE event per programme page, 16 seconds after load, summarising what
  * the player did. One event per video watched, so the cost is small.
  *
+ * Also keeps the last state of the app in localStorage, and reports it when
+ * the app comes back after a gap of more than a minute (FOX-3001).
+ *
  * Paste BELOW the foxtel-rcu script tag in the UScreen head code.
  */
 (function () {
@@ -155,6 +158,82 @@
     setTimeout(function () { note('snapshot ' + JSON.stringify(snap()).slice(0, 200)); }, 7000);
     setTimeout(send, 16000);
   }
+
+  // --- Last state before a black screen (Foxtel FOX-3001) ---
+  //
+  // A page that goes black cannot report anything, so each page writes its
+  // state to localStorage every 10 seconds. The next page that loads reads
+  // it. If the last write is more than a minute old, something stopped the
+  // app between the two pages, and this sends what the last page saw: the
+  // video, the memory, and whether it was on its way to the next video.
+  // A normal close and relaunch also sends one event. Its content shows it.
+  var LAST_KEY = 'rcu_last_state';
+  var GAP_S = 60;
+  var leavingTo = null;
+
+  function mem() {
+    try {
+      var m = performance.memory;
+      return m ? Math.round(m.usedJSHeapSize / 1048576) + '/' + Math.round(m.jsHeapSizeLimit / 1048576) + ' MB' : 'n/a';
+    } catch (e) { return 'n/a'; }
+  }
+  function cidOf(href) { var m = /[?&]cid=(\d+)/.exec(href || ''); return m ? m[1] : ''; }
+  function pagesThisRun() {
+    try { return +sessionStorage.getItem('rcu_pages') || 0; } catch (e) { return -1; }
+  }
+  function writeLast(reason) {
+    try {
+      var s = snap();
+      localStorage.setItem(LAST_KEY, JSON.stringify({
+        at: Date.now(), reason: reason, path: location.pathname, cid: cidOf(location.search),
+        leavingTo: leavingTo, pages: pagesThisRun(), mem: mem(),
+        fullscreen: document.body ? document.body.classList.contains('rcu-fullscreen-active') : null,
+        video: s.video === 'none' ? 'none' :
+          [s.paused ? 'paused' : 'playing', 't' + s.currentTime, 'rs' + s.readyState,
+           'ns' + s.networkState, 'err' + s.errorCode, s.srcKind].join(' ')
+      }));
+    } catch (e) {}
+  }
+  function checkLast() {
+    var last = null;
+    try { last = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (e) {}
+    if (!last || !last.at || !STORE) return;
+    var gap = Math.round((Date.now() - last.at) / 1000);
+    if (gap < GAP_S || gap > 6 * 3600) return;
+    var kind = last.leavingTo ? 'leaving' :
+               last.reason === 'page hide' ? 'closed' :
+               (/^\/programs\//.test(last.path) ? 'programme' : 'browse');
+    var evt = {
+      event_id: eventId(), timestamp: Math.floor(Date.now() / 1000),
+      platform: 'javascript', level: kind === 'leaving' ? 'warning' : 'info',
+      logger: 'foxtel-session', environment: 'foxtel-biq',
+      release: 'foxtel-rcu@' + (window.__RCU_VERSION || 'unknown'),
+      message: { formatted: 'LAST STATE ' + kind + ' (' + gap + 's gap) ' + last.path +
+                            (last.leavingTo ? ' -> cid ' + cidOf(last.leavingTo) : '') },
+      tags: { rcu_diag: '1', rcu_last: kind, rcu_version: String(window.__RCU_VERSION || 'unknown') },
+      extra: { last: last, gapSeconds: gap, nowPath: location.pathname, ua: navigator.userAgent }
+    };
+    try {
+      fetch(STORE, { method: 'POST', body: JSON.stringify(evt), mode: 'cors', keepalive: true,
+                     headers: { 'Content-Type': 'text/plain;charset=UTF-8' } }).catch(function () {});
+    } catch (e) {}
+  }
+
+  checkLast();
+  try { sessionStorage.setItem('rcu_pages', String(pagesThisRun() + 1)); } catch (e) {}
+  writeLast('page load');
+  setInterval(function () { writeLast('tick'); }, 10000);
+  document.addEventListener('turbo:before-visit', function (ev) {
+    leavingTo = ev && ev.detail && ev.detail.url ? String(ev.detail.url) : 'unknown';
+    writeLast('leaving');
+  });
+  document.addEventListener('turbo:load', function () {
+    leavingTo = null;
+    try { sessionStorage.setItem('rcu_pages', String(pagesThisRun() + 1)); } catch (e) {}
+    writeLast('page load');
+  });
+  document.addEventListener('ended', function () { writeLast('video ended'); }, true);
+  window.addEventListener('pagehide', function () { writeLast('page hide'); });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
