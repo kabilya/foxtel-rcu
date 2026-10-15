@@ -15,6 +15,19 @@
   var d = /^https:\/\/([0-9a-f]+)@([^/]+)\/(\d+)$/.exec(DSN);
   var STORE = d ? 'https://' + d[2] + '/api/' + d[3] + '/store/?sentry_version=7&sentry_key=' + d[1] : null;
 
+  // A random name for this box, kept in localStorage. Two boxes testing at
+  // once otherwise give one mixed list of events that cannot be separated.
+  var BOX = (function () {
+    try {
+      var id = localStorage.getItem('rcu_box_id');
+      if (!id) {
+        id = 'box-' + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem('rcu_box_id', id);
+      }
+      return id;
+    } catch (e) { return 'unknown'; }
+  })();
+
   var timeline = [];
   var t0 = Date.now();
   var sent = false;
@@ -64,6 +77,8 @@
     var data = {
       rcuVersion: window.__RCU_VERSION || 'MISSING',
       url: location.pathname,
+      cid: (/[?&]cid=(\d+)/.exec(location.search) || [])[1] || null,
+      box: BOX,
       ua: navigator.userAgent,
       viewport: window.innerWidth + 'x' + window.innerHeight,
       fullscreen: document.body.classList.contains('rcu-fullscreen-active'),
@@ -81,7 +96,7 @@
       release: 'foxtel-rcu@' + data.rcuVersion,
       message: { formatted: 'VIDEO ' + (final.paused === false ? 'played' : 'DID NOT PLAY') + ' ' + location.pathname },
       tags: {
-        rcu_diag: '1', rcu_video: final.paused === false ? 'played' : 'failed',
+        rcu_diag: '1', rcu_box: BOX, rcu_video: final.paused === false ? 'played' : 'failed',
         rcu_version: String(data.rcuVersion),
         rcu_ready: String(final.readyState), rcu_err: String(final.errorCode)
       },
@@ -111,7 +126,7 @@
       environment: 'foxtel-biq',
       message: { formatted: 'RCU ERROR in ' + where + (key ? ' on key ' + key : '') + ': ' +
                             (err && err.message ? err.message : String(err)) },
-      tags: { rcu_diag: '1', rcu_error: where, rcu_version: String(window.__RCU_VERSION || 'unknown') },
+      tags: { rcu_diag: '1', rcu_box: BOX, rcu_error: where, rcu_version: String(window.__RCU_VERSION || 'unknown') },
       extra: {
         where: where, key: key || null,
         message: err && err.message ? String(err.message).slice(0, 300) : String(err).slice(0, 300),
@@ -210,7 +225,7 @@
       release: 'foxtel-rcu@' + (window.__RCU_VERSION || 'unknown'),
       message: { formatted: 'LAST STATE ' + kind + ' (' + gap + 's gap) ' + last.path +
                             (last.leavingTo ? ' -> cid ' + cidOf(last.leavingTo) : '') },
-      tags: { rcu_diag: '1', rcu_last: kind, rcu_version: String(window.__RCU_VERSION || 'unknown') },
+      tags: { rcu_diag: '1', rcu_box: BOX, rcu_last: kind, rcu_version: String(window.__RCU_VERSION || 'unknown') },
       extra: { last: last, gapSeconds: gap, nowPath: location.pathname, ua: navigator.userAgent }
     };
     try {
