@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-15-b';
+  var RCU_VERSION = '2026-10-15-c';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1733,7 +1733,7 @@
       // (Foxtel FOX-2957). replace() keeps the history short: Back from the
       // fifth video must not walk through the four before it.
       var nextUrl = nextInCollection();
-      if (nextUrl) { goToNextVideo(nextUrl); return; }
+      if (nextUrl) { goToNextVideoAfterRest(nextUrl); return; }
       // Look for "next video" section on the page
       var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
       if (nextSection) {
@@ -1776,6 +1776,33 @@
         note('the next video did not arrive, loading the page');
         window.location.replace(url);
       }, NEXT_VIDEO_WAIT_MS);
+    }
+
+    // Free the decoder, wait, and only then go to the next video.
+    //
+    // FOX-3001, the record from the box at 1:47 pm on 15 Oct 2026: video 2
+    // arrived ("page load" written), and then the page wrote nothing more,
+    // not even the tick ten seconds later. The box stopped running the page
+    // just as video 2 started, with plenty of memory left. On the box a new
+    // video started at the same moment the old one ended, every time. A
+    // viewer who picks videos by hand never does that, and that path has not
+    // failed in the same way. So give the box what a viewer gives it: the old
+    // video fully released, and a few seconds before the next one starts.
+    var NEXT_VIDEO_REST_MS = 4000;
+    var _nextTimer = null;
+    function goToNextVideoAfterRest(url) {
+      var here = window.location.href;
+      var vids = document.querySelectorAll('video');
+      for (var i = 0; i < vids.length; i++) {
+        try { vids[i].pause(); vids[i].removeAttribute('src'); vids[i].innerHTML = ''; vids[i].load(); } catch (ex) {}
+      }
+      note('freed the decoder, next video in ' + (NEXT_VIDEO_REST_MS / 1000) + 's');
+      if (_nextTimer) clearTimeout(_nextTimer);
+      _nextTimer = setTimeout(function() {
+        _nextTimer = null;
+        if (window.location.href !== here) return;     // the viewer went elsewhere
+        goToNextVideo(url);
+      }, NEXT_VIDEO_REST_MS);
     }
 
     // The next video of the collection, or null. uScreen puts the id of the

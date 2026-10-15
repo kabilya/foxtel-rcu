@@ -202,6 +202,9 @@
       localStorage.setItem(LAST_KEY, JSON.stringify({
         at: Date.now(), reason: reason, path: location.pathname, cid: cidOf(location.search),
         leavingTo: leavingTo, pages: pagesThisRun(), mem: mem(),
+        tl: timeline.slice(-6), ap: (function () {
+          try { return (window.__rcuAutoPlay.log || []).slice(-4); } catch (e) { return null; }
+        })(),
         fullscreen: document.body ? document.body.classList.contains('rcu-fullscreen-active') : null,
         video: s.video === 'none' ? 'none' :
           [s.paused ? 'paused' : 'playing', 't' + s.currentTime, 'rs' + s.readyState,
@@ -238,6 +241,18 @@
   try { sessionStorage.setItem('rcu_pages', String(pagesThisRun() + 1)); } catch (e) {}
   writeLast('page load');
   setInterval(function () { writeLast('tick'); }, 10000);
+  // The first 30 seconds of a page are where the box stopped. Write every
+  // second then, so the record shows how far the page got.
+  var _burst = null;
+  function burst() {
+    if (_burst) clearInterval(_burst);
+    var n = 0;
+    _burst = setInterval(function () {
+      writeLast('early ' + (++n) + 's');
+      if (n >= 30) { clearInterval(_burst); _burst = null; }
+    }, 1000);
+  }
+  burst();
   document.addEventListener('turbo:before-visit', function (ev) {
     leavingTo = ev && ev.detail && ev.detail.url ? String(ev.detail.url) : 'unknown';
     writeLast('leaving');
@@ -246,6 +261,7 @@
     leavingTo = null;
     try { sessionStorage.setItem('rcu_pages', String(pagesThisRun() + 1)); } catch (e) {}
     writeLast('page load');
+    burst();
   });
   document.addEventListener('ended', function () { writeLast('video ended'); }, true);
   window.addEventListener('pagehide', function () { writeLast('page hide'); });
