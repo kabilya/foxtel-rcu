@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-15-e';
+  var RCU_VERSION = '2026-10-16-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -364,6 +364,40 @@
       if (list.length) list[0].focus();
     }
 
+    // Give the page a focus as soon as it has something to focus.
+    //
+    // Foxtel FOX-3059: after launch, OK did nothing until an arrow key had
+    // put focus on the first tile. focusFirst() ran once, as the script
+    // started, and the home screen rails were not there yet. So try again
+    // until the page has content, for up to 10 seconds, and on every page
+    // change. Stop as soon as anything has focus: a viewer who is quicker
+    // keeps their own. Never on a video page, where the player takes over.
+    var _initialFocusTimer = null;
+    function giveInitialFocus() {
+      if (_initialFocusTimer) clearTimeout(_initialFocusTimer);
+      var tries = 0;
+      function attempt() {
+        _initialFocusTimer = null;
+        var ae = document.activeElement;
+        if (ae && ae !== document.body && ae !== document.documentElement) return;
+        if (_kbdOpen || isInFullscreen()) return;
+        if (document.querySelector('video-player') || /[?&]cid=/.test(window.location.search)) return;
+        // A collection's landing page: "Start watching" is the obvious first step.
+        var watch = document.querySelector('.collection-buttons--watch a[href], a.collection-buttons--watch, .collection-buttons--watch ds-button');
+        if (watch && watch.getBoundingClientRect().width > 0) { getFocusTarget(watch).focus(); return; }
+        if (isPlayablePage()) {
+          // A single video page: its player may still be on the way.
+          if (++tries <= 20) _initialFocusTimer = setTimeout(attempt, 500);
+          return;
+        }
+        var list = getVisibleFocusables();
+        if (list.length) { focusFirst(); return; }
+        if (++tries <= 20) _initialFocusTimer = setTimeout(attempt, 500);
+      }
+      _initialFocusTimer = setTimeout(attempt, 300);
+    }
+    document.addEventListener('turbo:load', giveInitialFocus);
+
     // Find the real focusable element inside a Web Component
     function getFocusTarget(el) {
       if (!el) return el;
@@ -700,7 +734,7 @@
 
     if (isSBB) {
       buildKeyboard();
-      focusFirst();
+      giveInitialFocus();
     }
 
     // --- Custom Filter Modal ---
@@ -2587,7 +2621,17 @@
       // OK / Select (Enter)
       if (key === 'Enter') {
         var focused = document.activeElement;
-        if (!focused || focused === document.body) return;
+        if (!focused || focused === document.body) {
+          // Nothing has focus yet. OK must still do something visible: give
+          // the focus that an arrow key would have given (FOX-3059).
+          if (!isInFullscreen()) {
+            e.preventDefault();
+            focusFirst();
+            var nf = document.activeElement;
+            if (nf && nf !== document.body) ensureVisible(nf);
+          }
+          return;
+        }
 
         // Input fields: on SBB, open the on-screen keyboard
         if (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') {
