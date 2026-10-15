@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-15-c';
+  var RCU_VERSION = '2026-10-15-d';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1601,7 +1601,10 @@
     var _cssFullscreen = false;
 
     function enterFullscreen(vid) {
-      if (_cssFullscreen) return;
+      // The flag alone is not enough. Turbo swaps the page, and a flag left
+      // set by the page before kept the next video out of full screen.
+      if (_cssFullscreen && vid.classList.contains('rcu-fullscreen') &&
+          document.body.classList.contains('rcu-fullscreen-active')) return;
       _cssFullscreen = true;
       vid.classList.add('rcu-fullscreen');
       document.body.classList.add('rcu-fullscreen-active');
@@ -1792,6 +1795,7 @@
     var _nextTimer = null;
     function goToNextVideoAfterRest(url) {
       var here = window.location.href;
+      _userPaused = true;      // the watcher must not start the old video again
       var vids = document.querySelectorAll('video');
       for (var i = 0; i < vids.length; i++) {
         try { vids[i].pause(); vids[i].removeAttribute('src'); vids[i].innerHTML = ''; vids[i].load(); } catch (ex) {}
