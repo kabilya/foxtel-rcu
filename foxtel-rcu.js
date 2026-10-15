@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-15-d';
+  var RCU_VERSION = '2026-10-15-e';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1749,48 +1749,22 @@
       // half of the endless auto-play loop Foxtel reported.
     }
 
-    // Go to the next video the way every other page change in the app goes:
-    // with Turbo, in the same page.
+    // Free the old video, wait, then load the next video as a NEW PAGE.
     //
-    // Foxtel FOX-3001: after four to eleven videos of a playlist, the screen
-    // went black and only Home got out. Each step was a full page load. The
-    // page that went black never ran its scripts at all (no Sentry event from
-    // it, where every page that loads sends one), so the load itself failed.
-    // A Turbo visit keeps this page and its scripts alive, frees the decoder
-    // first (turbo:before-visit), and if the next page does not arrive, the
-    // script is still here to try the full load instead.
-    var NEXT_VIDEO_WAIT_MS = 20000;
-    function goToNextVideo(url) {
-      var T = window.Turbo;
-      if (!T || typeof T.visit !== 'function') { window.location.replace(url); return; }
-      var arrived = false;
-      function onArrive() { arrived = true; document.removeEventListener('turbo:load', onArrive); }
-      document.addEventListener('turbo:load', onArrive);
-      try {
-        T.visit(url, { action: 'replace' });
-      } catch (ex) {
-        document.removeEventListener('turbo:load', onArrive);
-        window.location.replace(url);
-        return;
-      }
-      setTimeout(function() {
-        if (arrived) return;
-        document.removeEventListener('turbo:load', onArrive);
-        note('the next video did not arrive, loading the page');
-        window.location.replace(url);
-      }, NEXT_VIDEO_WAIT_MS);
-    }
-
-    // Free the decoder, wait, and only then go to the next video.
+    // Foxtel FOX-3001, black screens in a playlist. What the box recorded:
     //
-    // FOX-3001, the record from the box at 1:47 pm on 15 Oct 2026: video 2
-    // arrived ("page load" written), and then the page wrote nothing more,
-    // not even the tick ten seconds later. The box stopped running the page
-    // just as video 2 started, with plenty of memory left. On the box a new
-    // video started at the same moment the old one ended, every time. A
-    // viewer who picks videos by hand never does that, and that path has not
-    // failed in the same way. So give the box what a viewer gives it: the old
-    // video fully released, and a few seconds before the next one starts.
+    // - Full page loads, 14 Oct: 4 to 11 videos in a row, then a page that
+    //   never ran its scripts.
+    // - Turbo visits, 15 Oct: black on video 2, three runs out of three.
+    //   12:42 pm, decoder refused (media error 4). 1:47 pm, the box stopped
+    //   as video 2 arrived. 2:52 pm, video 2 PLAYED for 10 seconds, and then
+    //   the box stopped. Each time with only 34 to 37 MB of script memory.
+    //
+    // A Turbo visit keeps the page before alive, and uScreen's player on it
+    // keeps its video buffers and the decoder, out of reach of any script. The
+    // box then runs out of video memory as the next video fills its buffer.
+    // A full page load throws the old page away. So: release the old video,
+    // give the box a few seconds, and load the next video as a new page.
     var NEXT_VIDEO_REST_MS = 4000;
     var _nextTimer = null;
     function goToNextVideoAfterRest(url) {
@@ -1805,7 +1779,8 @@
       _nextTimer = setTimeout(function() {
         _nextTimer = null;
         if (window.location.href !== here) return;     // the viewer went elsewhere
-        goToNextVideo(url);
+        note('loading the next video as a new page');
+        window.location.replace(url);
       }, NEXT_VIDEO_REST_MS);
     }
 
