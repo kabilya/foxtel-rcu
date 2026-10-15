@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-15-a';
+  var RCU_VERSION = '2026-10-15-b';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1869,7 +1869,10 @@
         w.at = Math.round(performance.now()) + 'ms';
         w.waits = _autoPlayWaits;
         if (extra) for (var k in extra) w[k] = extra[k];
-        if (w.log.length < 20) w.log.push(w.at + ' ' + reason + (extra ? ' ' + JSON.stringify(extra) : ''));
+        // Keep the LAST 30 lines. The first 20 only showed how a page began,
+        // and the box faults that matter come later.
+        w.log.push(w.at + ' ' + reason + (extra ? ' ' + JSON.stringify(extra) : ''));
+        if (w.log.length > 30) w.log.shift();
       } catch (ex) {}
     }
 
@@ -1967,6 +1970,29 @@
       vid.addEventListener('loadstart', reloaded);
     }
 
+    // Load the whole page again, once for each video.
+    //
+    // Foxtel FOX-3001, measured on the box: after a Turbo page change, the
+    // next video got media error 4 (PIPELINE_ERROR_EXTERNAL_RENDERER_FAILED)
+    // again and again, and the screen stayed black. The page before still
+    // held the one hardware decoder, and nothing in the DOM held it: freeing
+    // every video element did not help, and hls.js needs the same decoder.
+    // A full page load ends the old page completely, which frees the decoder.
+    // The full page loads before this change played four to eleven videos in
+    // a row with no decoder fault, so the cost is one reload, not a risk.
+    // sessionStorage stops a loop: one reload for one video in two minutes.
+    function reloadPageOnce(pageHref) {
+      try {
+        var key = 'rcu_reloaded_for';
+        var last = JSON.parse(sessionStorage.getItem(key) || 'null');
+        if (last && last.href === pageHref && Date.now() - last.at < 120000) return false;
+        sessionStorage.setItem(key, JSON.stringify({ href: pageHref, at: Date.now() }));
+      } catch (ex) { return false; }     // no memory of it, so do not risk a loop
+      note('decoder still held, loading the page again');
+      window.location.replace(pageHref);
+      return true;
+    }
+
     function ensurePlaying(vid, pageHref) {
       watchForViewerPause(vid);
       var started = Date.now();
@@ -2028,6 +2054,7 @@
             try { vid.load(); } catch (ex) {}
           } else if (!rescued) {
             rescued = true;
+            if (vid.error.code === 4 && reloadPageOnce(pageHref)) return;
             note('media error persists, handing over to hls.js', { code: vid.error.code });
             fixVideoPlayback(true);
           }
