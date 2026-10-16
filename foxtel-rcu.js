@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-16-a';
+  var RCU_VERSION = '2026-10-16-b';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1621,7 +1621,10 @@
     // thing: it looks like they paused it, when in fact it never began.
     var _hasEverPlayed = false;
     document.addEventListener('playing', function() { _hasEverPlayed = true; }, true);
-    document.addEventListener('pause', function() {
+    document.addEventListener('pause', function(ev) {
+      // A video that has ended also reports a pause. Nobody paused it, and in
+      // the playlist player the next video follows a moment later.
+      if (ev && ev.target && ev.target.ended) return;
       if (_hasEverPlayed && isInFullscreen()) pausedIndicator(true);
     }, true);
     document.addEventListener('play', function() {
@@ -1770,7 +1773,11 @@
       // (Foxtel FOX-2957). replace() keeps the history short: Back from the
       // fifth video must not walk through the four before it.
       var nextUrl = nextInCollection();
-      if (nextUrl) { goToNextVideoAfterRest(nextUrl); return; }
+      if (nextUrl) {
+        if (singlePlayerAllowed()) startSinglePlayer(nextUrl);
+        else goToNextVideoAfterRest(nextUrl);
+        return;
+      }
       // Look for "next video" section on the page
       var nextSection = document.querySelector('[class*="next-video"], [class*="up-next"], [class*="next_video"]');
       if (nextSection) {
@@ -1817,6 +1824,178 @@
         window.location.replace(url);
       }, NEXT_VIDEO_REST_MS);
     }
+
+    // --- One player for the rest of the playlist (FOX-3001) ---
+    //
+    // What the box showed: one 48 minute concert played to the end, but a
+    // playlist went black after 2 to 11 videos. The box loses memory each
+    // time a new video player starts, and no page script can get it back.
+    // So start a player once, and give it each next video. No new page, no
+    // new player: only the source changes.
+    //
+    // It is the box's own player (a plain <video> with the HLS address),
+    // which Foxtel's guide (FBIQ-018, section 8) recommends for HLS. The
+    // first video still plays in uScreen's player. When it ends, uScreen's
+    // player is removed, so that it frees what it holds, and this one takes
+    // over. Any fault sends the viewer the old way, a full page load, and
+    // turns this off for the rest of the session.
+    var SP_FAILED_KEY = 'rcu_single_player_failed';
+    var SP_START_MS = 20000;
+    var _sp = null;
+
+    function singlePlayerAllowed() {
+      if (!isSBB) return false;
+      try { if (sessionStorage.getItem(SP_FAILED_KEY)) return false; } catch (ex) {}
+      try {
+        var t = document.createElement('video');
+        return !!(t.canPlayType('application/vnd.apple.mpegurl') ||
+                  t.canPlayType('application/x-mpegURL') ||
+                  t.canPlayType('application/mpegurl'));
+      } catch (ex) { return false; }
+    }
+
+    function cidOfUrl(url) { var m = /[?&]cid=(\d+)/.exec(url || ''); return m ? m[1] : ''; }
+
+    // uScreen loads the player for a video from this address. It holds the
+    // HLS address with a fresh access token, and the id of the next video.
+    function fetchVideoInfo(path, cid) {
+      return fetch(path + '/program_content?cid=' + encodeURIComponent(cid) + '&playlist_position=sidebar',
+                   { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function(h) {
+          var src = (/<source[^>]*\ssrc="([^"]+)"/.exec(h) || [])[1] || '';
+          if (src.indexOf('.m3u8') === -1) throw new Error('no stream address');
+          return {
+            src: src.replace(/&amp;/g, '&'),
+            next: (/data-program-video-next-video-id-value="(\d*)"/.exec(h) || [])[1] || ''
+          };
+        });
+    }
+
+    function startSinglePlayer(nextUrl) {
+      var path = window.location.pathname;
+      var sp = { vid: null, path: path, played: {}, count: 0, next: '', cid: '',
+                 startTimer: null, wantSound: false, fallbackUrl: nextUrl };
+      var here = cidOfUrl(window.location.search);
+      if (here) sp.played[here] = true;
+
+      // Free uScreen's player completely. Taking its element out of the page
+      // lets it tear itself down; freeing the <video> alone left it holding.
+      _userPaused = true;
+      var vids = document.querySelectorAll('video');
+      for (var i = 0; i < vids.length; i++) {
+        try { vids[i].pause(); vids[i].removeAttribute('src'); vids[i].innerHTML = ''; vids[i].load(); } catch (ex) {}
+      }
+      var vp = document.querySelector('video-player');
+      if (vp && vp.parentNode) { try { vp.parentNode.removeChild(vp); } catch (ex) {} }
+      for (var j = 0; j < vids.length; j++) {
+        if (vids[j].parentNode) { try { vids[j].parentNode.removeChild(vids[j]); } catch (ex) {} }
+      }
+
+      var v = document.createElement('video');
+      v.id = 'rcu-single-player';
+      v.setAttribute('tabindex', '0');
+      v.setAttribute('playsinline', '');
+      document.body.appendChild(v);
+      sp.vid = v;
+      _sp = sp;
+      v.addEventListener('ended', function() { if (_sp === sp) spPlay(sp.next); });
+      v.addEventListener('error', function() {
+        if (_sp === sp) spFail('media error ' + (v.error ? v.error.code : '?'));
+      });
+      v.addEventListener('playing', function() {
+        if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
+      });
+      note('single player: taking over', { next: cidOfUrl(nextUrl) });
+      // A short rest, so the decoder is free before the player asks for it.
+      setTimeout(function() { if (_sp === sp) spPlay(cidOfUrl(nextUrl)); }, 1500);
+    }
+
+    function spPlay(cid) {
+      var sp = _sp;
+      if (!sp) return;
+      if (!cid || sp.played[cid]) { spEnd('end of the collection'); return; }
+      sp.played[cid] = true;
+      sp.cid = cid;
+      sp.fallbackUrl = sp.path + '?cid=' + cid;
+      fetchVideoInfo(sp.path, cid).then(function(info) {
+        if (_sp !== sp) return;
+        var v = sp.vid;
+        sp.next = info.next;
+        sp.count++;
+        // The address bar follows the video, so a reload, the recorder and
+        // Sentry all see the right one. Turbo's own state is kept.
+        try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {}
+        note('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
+        _userPaused = false;
+        v.src = info.src;
+        enterFullscreen(v);
+        try { v.focus(); } catch (ex) {}
+        if (sp.startTimer) clearTimeout(sp.startTimer);
+        sp.startTimer = setTimeout(function() {
+          sp.startTimer = null;
+          if (_sp === sp && v.readyState < 2 && v.currentTime === 0) spFail('did not start in ' + (SP_START_MS / 1000) + 's');
+        }, SP_START_MS);
+        var p = v.play();
+        if (p && p.catch) p.catch(function(err) {
+          if (_sp !== sp) return;
+          // The autoplay rule is about sound: start quiet, and put the sound
+          // back at the next key press. Any other refusal is the source
+          // changing under it; 'playing' or the timer decides.
+          if (err && err.name === 'NotAllowedError') {
+            v.muted = true;
+            sp.wantSound = true;
+            v.play().catch(function() {});
+          }
+        });
+      }).catch(function(err) {
+        if (_sp === sp) spFail('could not get the video: ' + String(err && err.message || err).slice(0, 60));
+      });
+    }
+
+    function stopSinglePlayer() {
+      var sp = _sp;
+      if (!sp) return;
+      _sp = null;
+      if (sp.startTimer) clearTimeout(sp.startTimer);
+      exitFullscreen();
+      var v = sp.vid;
+      try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
+      if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
+    }
+
+    // The playlist is over, or the viewer left it: back to the collection page.
+    function spEnd(reason) {
+      var sp = _sp;
+      if (!sp) return;
+      note('single player: ' + reason, { played: sp.count });
+      stopSinglePlayer();
+      window.location.replace(sp.path);
+    }
+
+    // Something went wrong: the old way for this video, and no more single
+    // player in this session. The viewer still gets the video.
+    function spFail(reason) {
+      var sp = _sp;
+      if (!sp) return;
+      note('single player failed: ' + reason + ', loading the page', { cid: sp.cid });
+      try { sessionStorage.setItem(SP_FAILED_KEY, reason); } catch (ex) {}
+      stopSinglePlayer();
+      window.location.replace(sp.fallbackUrl);
+    }
+
+    document.addEventListener('turbo:before-visit', stopSinglePlayer);
+    window.addEventListener('pagehide', stopSinglePlayer);
+    // Any key from the remote is the interaction the sound was waiting for.
+    document.addEventListener('keydown', function() {
+      if (_sp && _sp.wantSound && _sp.vid.muted && !_sp.vid.paused) {
+        _sp.vid.muted = false;
+        _sp.wantSound = false;
+      }
+    }, true);
 
     // The next video of the collection, or null. uScreen puts the id of the
     // next video on the player. Null at the end of the collection: the id
@@ -2776,6 +2955,13 @@
 
       // Back / Last (Escape)
       if (key === 'Escape') {
+        // Back from the playlist player leaves the playlist.
+        if (_sp) {
+          e.preventDefault();
+          e.stopPropagation();
+          spEnd('the viewer pressed Back');
+          return;
+        }
         // If a ds-select dropdown is open (user is navigating its options), close it
         var escActive = document.activeElement;
         if (escActive && escActive.tagName === 'DS-SELECT-OPTION') {
@@ -2928,6 +3114,7 @@
             }
             e.preventDefault(); break;
           case 'MediaStop':
+            if (_sp) { spEnd('the viewer pressed Stop'); e.preventDefault(); break; }
             _userPaused = true;
             video.pause(); video.currentTime = 0;
             exitFullscreen();
