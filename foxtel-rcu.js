@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-16-c';
+  var RCU_VERSION = '2026-10-16-d';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1847,8 +1847,12 @@
       if (!isSBB) return false;
       // The Foxtel box only. Desktop Chrome says it "maybe" plays HLS, then
       // fails with error 4 (measured), and a website viewer must not pay for
-      // a test that only the box can pass.
-      if (!/ADBChromium|Foxtel_STB/.test(navigator.userAgent)) return false;
+      // a test that only the box can pass. The boxes do not all name
+      // themselves the same way. Both of these were seen in Sentry:
+      //   ADBChromium/105.232.1.213 (ADB; MBN300A) Chromium/105.0.5195.102
+      //   (X11; Linux aarch64) ... Chromium/105.0.5195.102 (ADB; MBN300A)
+      // "(ADB;" is in both, and the first test missed the second one.
+      if (!/\(ADB;|ADBChromium|Foxtel_STB/.test(navigator.userAgent)) return false;
       try { if (sessionStorage.getItem(SP_FAILED_KEY)) return false; } catch (ex) {}
       try {
         var t = document.createElement('video');
