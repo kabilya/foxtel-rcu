@@ -145,6 +145,44 @@
     } catch (e) {}
   }
   window.__rcuOnError = sendError;
+
+  // Steps of the single player (FOX-3001). It plays a whole playlist on one
+  // page, so the per-page VIDEO event above sees only the first video. A
+  // beacon, because a failure loads a new page at once and a fetch can be
+  // cut off.
+  var reportsSent = 0;
+  function sendReport(reason, extra) {
+    if (reportsSent >= 60 || !STORE) return;
+    reportsSent++;
+    var mem = null;
+    try {
+      var m = performance.memory;
+      if (m) mem = Math.round(m.usedJSHeapSize / 1048576) + '/' + Math.round(m.jsHeapSizeLimit / 1048576) + ' MB';
+    } catch (e) {}
+    var failed = /failed/.test(reason);
+    var evt = {
+      event_id: eventId(),
+      timestamp: Math.floor(Date.now() / 1000),
+      platform: 'javascript', level: failed ? 'warning' : 'info', logger: 'foxtel-single-player',
+      release: 'foxtel-rcu@' + (window.__RCU_VERSION || 'unknown'),
+      environment: 'foxtel-biq',
+      message: { formatted: 'SP ' + reason },
+      tags: { rcu_diag: '1', rcu_box: BOX, rcu_sp: failed ? 'failed' : 'step',
+              rcu_version: String(window.__RCU_VERSION || 'unknown') },
+      extra: { reason: reason, detail: extra || null, mem: mem, url: location.pathname,
+               cid: (/[?&]cid=(\d+)/.exec(location.search) || [])[1] || null,
+               ua: navigator.userAgent }
+    };
+    var body = JSON.stringify(evt);
+    try {
+      if (navigator.sendBeacon && navigator.sendBeacon(STORE, new Blob([body], { type: 'text/plain;charset=UTF-8' }))) return;
+    } catch (e) {}
+    try {
+      fetch(STORE, { method: 'POST', body: body, mode: 'cors', keepalive: true,
+                     headers: { 'Content-Type': 'text/plain;charset=UTF-8' } }).catch(function () {});
+    } catch (e) {}
+  }
+  window.__rcuReport = sendReport;
   window.addEventListener('error', function (ev) {
     sendError('window', ev.error || new Error(ev.message), null);
   });

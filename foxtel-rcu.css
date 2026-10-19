@@ -7,7 +7,7 @@
    stylesheet and the script are from different deploys. The two are separate
    <link> and <script> tags, so it is easy to update one and forget the other,
    and the result is a page that is half fixed with no obvious cause. */
-:root { --rcu-build: "2026-10-16-d"; }
+:root { --rcu-build: "2026-10-19-a"; }
 
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
@@ -614,4 +614,21 @@ body.rcu-fullscreen-active #rcu-side-menu {
 /* Anything behind the picture should be black, never page grey. */
 body.rcu-fullscreen-active {
     background: #000 !important;
+}
+
+/* TEMPORARY: the Foxtel test tile (FOX-3001). Remove after the test. */
+.foxtel-sbb #rcu-test-tile {
+  display: block;
+  margin: 16px 24px;
+  padding: 24px 32px;
+  border-radius: 12px;
+  background: #1f4e79;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.foxtel-sbb #rcu-test-tile:focus {
+  outline: 6px solid #ffd400;
+  outline-offset: 4px;
 }

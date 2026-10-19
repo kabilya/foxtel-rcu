@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-16-d';
+  var RCU_VERSION = '2026-10-19-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1833,33 +1833,47 @@
     // So start a player once, and give it each next video. No new page, no
     // new player: only the source changes.
     //
-    // It is the box's own player (a plain <video> with the HLS address),
-    // which Foxtel's guide (FBIQ-018, section 8) recommends for HLS. The
-    // first video still plays in uScreen's player. When it ends, uScreen's
-    // player is removed, so that it frees what it holds, and this one takes
-    // over. Any fault sends the viewer the old way, a full page load, and
-    // turns this off for the rest of the session.
+    // It is one <video> and one hls.js, kept for the whole playlist. The
+    // first try gave the stream address to the box's own player, and it
+    // failed within 4 seconds on all three ADB boxes (16 Oct). uScreen's
+    // player already plays through hls.js on the box, and so do most apps
+    // on it (Foxtel, 19 Oct). The difference is that those apps keep their
+    // player, where uScreen builds a new page, player and hls.js for each
+    // video. The first video still plays in uScreen's player. When it ends,
+    // uScreen's player is removed, so that it frees what it holds, and this
+    // one takes over. Any fault sends the viewer the old way, a full page
+    // load, and turns this off for the rest of the session.
+    //
+    // Only the ADB boxes. The ARRIS box (WPE browser) played 50 videos in a
+    // row the old way with no fault, so it stays on the old way.
     var SP_FAILED_KEY = 'rcu_single_player_failed';
     var SP_START_MS = 20000;
+    var SP_REST_MS = 3000;
+    // The same address as uScreen's player uses, so the box already has it.
+    var SP_HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.7.0/+esm';
     var _sp = null;
 
     function singlePlayerAllowed() {
       if (!isSBB) return false;
-      // The Foxtel box only. Desktop Chrome says it "maybe" plays HLS, then
-      // fails with error 4 (measured), and a website viewer must not pay for
-      // a test that only the box can pass. The boxes do not all name
-      // themselves the same way. Both of these were seen in Sentry:
+      // The boxes do not all name themselves the same way. Both of these
+      // were seen in Sentry:
       //   ADBChromium/105.232.1.213 (ADB; MBN300A) Chromium/105.0.5195.102
       //   (X11; Linux aarch64) ... Chromium/105.0.5195.102 (ADB; MBN300A)
-      // "(ADB;" is in both, and the first test missed the second one.
-      if (!/\(ADB;|ADBChromium|Foxtel_STB/.test(navigator.userAgent)) return false;
+      if (!/\(ADB;|ADBChromium/.test(navigator.userAgent)) return false;
       try { if (sessionStorage.getItem(SP_FAILED_KEY)) return false; } catch (ex) {}
-      try {
-        var t = document.createElement('video');
-        return !!(t.canPlayType('application/vnd.apple.mpegurl') ||
-                  t.canPlayType('application/x-mpegURL') ||
-                  t.canPlayType('application/mpegurl'));
-      } catch (ex) { return false; }
+      return !!window.MediaSource;
+    }
+
+    function loadHls() {
+      if (window.Hls && window.Hls.isSupported) return Promise.resolve(window.Hls);
+      return import(SP_HLS_CDN).then(function(m) { return m.default; });
+    }
+
+    // A note, and a line to Sentry when the diagnostic is on the page. A
+    // fault in this player left no trace before: the note stayed in the page.
+    function spReport(reason, extra) {
+      note(reason, extra);
+      try { if (window.__rcuReport) window.__rcuReport(reason, extra); } catch (ex) {}
     }
 
     function cidOfUrl(url) { var m = /[?&]cid=(\d+)/.exec(url || ''); return m ? m[1] : ''; }
@@ -1885,21 +1899,20 @@
 
     function startSinglePlayer(nextUrl) {
       var path = window.location.pathname;
-      var sp = { vid: null, path: path, played: {}, count: 0, next: '', cid: '',
-                 startTimer: null, wantSound: false, fallbackUrl: nextUrl };
+      var sp = { vid: null, hls: null, path: path, played: {}, count: 0, next: '', cid: '',
+                 startTimer: null, wantSound: false, recovered: false, fallbackUrl: nextUrl };
       var here = cidOfUrl(window.location.search);
       if (here) sp.played[here] = true;
 
-      // Free uScreen's player completely. Taking its element out of the page
-      // lets it tear itself down; freeing the <video> alone left it holding.
+      // Free uScreen's player completely. Its element goes first, so that it
+      // tears down its own hls.js while the <video> is still inside it.
       _userPaused = true;
       var vids = document.querySelectorAll('video');
-      for (var i = 0; i < vids.length; i++) {
-        try { vids[i].pause(); vids[i].removeAttribute('src'); vids[i].innerHTML = ''; vids[i].load(); } catch (ex) {}
-      }
+      for (var i = 0; i < vids.length; i++) { try { vids[i].pause(); } catch (ex) {} }
       var vp = document.querySelector('video-player');
       if (vp && vp.parentNode) { try { vp.parentNode.removeChild(vp); } catch (ex) {} }
       for (var j = 0; j < vids.length; j++) {
+        try { vids[j].removeAttribute('src'); vids[j].innerHTML = ''; vids[j].load(); } catch (ex) {}
         if (vids[j].parentNode) { try { vids[j].parentNode.removeChild(vids[j]); } catch (ex) {} }
       }
 
@@ -1911,21 +1924,52 @@
       sp.vid = v;
       _sp = sp;
       v.addEventListener('ended', function() { if (_sp === sp) spPlay(sp.next); });
-      v.addEventListener('error', function() {
-        if (_sp === sp) spFail('media error ' + (v.error ? v.error.code : '?'));
-      });
       v.addEventListener('playing', function() {
         if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
       });
-      note('single player: taking over', { next: cidOfUrl(nextUrl) });
-      // A short rest, so the decoder is free before the player asks for it.
-      setTimeout(function() { if (_sp === sp) spPlay(cidOfUrl(nextUrl)); }, 1500);
+      spReport('single player: taking over', { next: cidOfUrl(nextUrl) });
+      // A rest, so the box can free uScreen's player before this one starts.
+      setTimeout(function() {
+        if (_sp !== sp) return;
+        loadHls().then(function(Hls) {
+          if (_sp !== sp) return;
+          if (!Hls || !Hls.isSupported()) { spFail('hls.js is not supported'); return; }
+          // hls.js keeps all the video it has played unless told otherwise.
+          // Nothing here seeks back far, so let it free what is behind.
+          var hls = new Hls({ backBufferLength: 30 });
+          sp.hls = hls;
+          hls.on(Hls.Events.ERROR, function(evt, data) {
+            if (_sp !== sp || !data || !data.fatal) return;
+            var what = data.type + ' ' + data.details;
+            // One second chance for each video, the way hls.js advises.
+            if (!sp.recovered && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              sp.recovered = true;
+              spReport('single player: recovering', { error: what });
+              hls.recoverMediaError();
+              return;
+            }
+            if (!sp.recovered && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              sp.recovered = true;
+              spReport('single player: loading again', { error: what });
+              hls.startLoad();
+              return;
+            }
+            spFail('hls.js ' + what);
+          });
+          hls.attachMedia(v);
+          spPlay(cidOfUrl(nextUrl));
+        }).catch(function(err) {
+          if (_sp === sp) spFail('could not load hls.js: ' + String(err && err.message || err).slice(0, 60));
+        });
+      }, SP_REST_MS);
     }
 
     function spPlay(cid) {
       var sp = _sp;
       if (!sp) return;
       if (!cid || sp.played[cid]) { spEnd('end of the collection'); return; }
+      // uScreen's player played the first video, so the test counts it.
+      if (_testLimit && sp.count + 1 >= _testLimit) { spEnd('test finished after ' + _testLimit + ' videos'); return; }
       sp.played[cid] = true;
       sp.cid = cid;
       sp.fallbackUrl = sp.path + '?cid=' + cid;
@@ -1934,12 +1978,13 @@
         var v = sp.vid;
         sp.next = info.next;
         sp.count++;
+        sp.recovered = false;
         // The address bar follows the video, so a reload, the recorder and
         // Sentry all see the right one. Turbo's own state is kept.
         try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {}
-        note('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
+        spReport('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
         _userPaused = false;
-        v.src = info.src;
+        sp.hls.loadSource(info.src);
         enterFullscreen(v);
         try { v.focus(); } catch (ex) {}
         if (sp.startTimer) clearTimeout(sp.startTimer);
@@ -1970,6 +2015,7 @@
       _sp = null;
       if (sp.startTimer) clearTimeout(sp.startTimer);
       exitFullscreen();
+      if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
       var v = sp.vid;
       try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
       if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
@@ -1979,7 +2025,7 @@
     function spEnd(reason) {
       var sp = _sp;
       if (!sp) return;
-      note('single player: ' + reason, { played: sp.count });
+      spReport('single player: ' + reason, { played: sp.count });
       stopSinglePlayer();
       window.location.replace(sp.path);
     }
@@ -1989,11 +2035,44 @@
     function spFail(reason) {
       var sp = _sp;
       if (!sp) return;
-      note('single player failed: ' + reason + ', loading the page', { cid: sp.cid });
+      spReport('single player failed: ' + reason + ', loading the page', { cid: sp.cid, played: sp.count });
       try { sessionStorage.setItem(SP_FAILED_KEY, reason); } catch (ex) {}
       stopSinglePlayer();
       window.location.replace(sp.fallbackUrl);
     }
+
+    // --- TEMPORARY: a test tile for Foxtel (FOX-3001). Remove after the test. ---
+    //
+    // The first thing on the Home screen of the box, with the focus, so a
+    // tester presses OK and the Elvis Playlist starts at video 1. With
+    // rcu_test=4 in the address, the single player stops after 4 videos.
+    var TEST_TILE_HREF = '/programs/collection-uwpry9p1l_s?cid=4774688&rcu_test=4';
+    var _testLimit = parseInt((/[?&]rcu_test=(\d+)/.exec(window.location.search) || [])[1] || '0', 10);
+    var _keySeen = false;
+    document.addEventListener('keydown', function() { _keySeen = true; }, true);
+
+    function addTestTile() {
+      if (!isSBB || !/^\/(catalog)?$/.test(window.location.pathname)) return;
+      if (document.getElementById('rcu-test-tile')) return;
+      var area = document.querySelector('.catalog-area');
+      if (!area) return false;
+      var a = document.createElement('a');
+      a.id = 'rcu-test-tile';
+      a.href = TEST_TILE_HREF;
+      a.textContent = 'Foxtel test: play 4 videos of the Elvis Playlist';
+      area.insertBefore(a, area.firstChild);
+      // Take the focus only if the viewer has not moved yet.
+      if (!_keySeen && !_kbdOpen) { try { a.focus(); } catch (ex) {} }
+      return true;
+    }
+    function scheduleTestTile() {
+      var tries = 0;
+      (function attempt() {
+        if (addTestTile() === false && ++tries <= 20) setTimeout(attempt, 500);
+      })();
+    }
+    document.addEventListener('turbo:load', scheduleTestTile);
+    setTimeout(scheduleTestTile, 300);
 
     document.addEventListener('turbo:before-visit', stopSinglePlayer);
     window.addEventListener('pagehide', stopSinglePlayer);
