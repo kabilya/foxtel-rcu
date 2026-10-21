@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-19-a';
+  var RCU_VERSION = '2026-10-21-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1808,14 +1808,54 @@
     // give the box a few seconds, and load the next video as a new page.
     var NEXT_VIDEO_REST_MS = 4000;
     var _nextTimer = null;
+    // Stop what uScreen's player leaves running (FOX-3001).
+    //
+    // Paul Ross-Adams (Foxtel) found it, and uScreen's code shows it: the
+    // player (@uscreentv/video-player 1.5.0-next.8) starts hls.js on its
+    // <video-container> and a Mux Data monitor on the <video>, but when it
+    // is removed it only stops a resize observer. Neither hls.js nor Mux is
+    // ever stopped. So stop both here, before any video change. Returns what
+    // it found, for the notes.
+    function cleanUpUscreenPlayer() {
+      var found = { hls: 0, mux: 0 };
+      var vids = document.querySelectorAll('video');
+      for (var i = 0; i < vids.length; i++) {
+        var m = vids[i].mux;
+        if (m && typeof m.destroy === 'function') {
+          try { m.destroy(); found.mux++; } catch (ex) {}
+        }
+      }
+      var hosts = document.querySelectorAll('video-container, video-player');
+      for (var j = 0; j < hosts.length; j++) {
+        var h = hosts[j].hls;
+        if (h && typeof h.destroy === 'function') {
+          try { h.destroy(); found.hls++; } catch (ex) {}
+          try { hosts[j].hls = null; } catch (ex) {}
+        }
+      }
+      if (_hlsInstance) { try { _hlsInstance.destroy(); found.hls++; } catch (ex) {} _hlsInstance = null; }
+      return found;
+    }
+
+    // Leaving a video page by any way (Back, Home, a new page): stop them too.
+    function cleanUpOnLeave() {
+      if (_sp) return;                       // the single player stops its own
+      if (!document.querySelector('video-player')) return;
+      var found = cleanUpUscreenPlayer();
+      if (found.hls || found.mux) note('stopped uScreen\'s player on leaving', found);
+    }
+    document.addEventListener('turbo:before-visit', cleanUpOnLeave);
+    window.addEventListener('pagehide', cleanUpOnLeave);
+
     function goToNextVideoAfterRest(url) {
       var here = window.location.href;
       _userPaused = true;      // the watcher must not start the old video again
+      var found = cleanUpUscreenPlayer();
       var vids = document.querySelectorAll('video');
       for (var i = 0; i < vids.length; i++) {
         try { vids[i].pause(); vids[i].removeAttribute('src'); vids[i].innerHTML = ''; vids[i].load(); } catch (ex) {}
       }
-      note('freed the decoder, next video in ' + (NEXT_VIDEO_REST_MS / 1000) + 's');
+      note('freed the decoder, next video in ' + (NEXT_VIDEO_REST_MS / 1000) + 's', found);
       if (_nextTimer) clearTimeout(_nextTimer);
       _nextTimer = setTimeout(function() {
         _nextTimer = null;
@@ -1907,6 +1947,7 @@
       // Free uScreen's player completely. Its element goes first, so that it
       // tears down its own hls.js while the <video> is still inside it.
       _userPaused = true;
+      var found = cleanUpUscreenPlayer();
       var vids = document.querySelectorAll('video');
       for (var i = 0; i < vids.length; i++) { try { vids[i].pause(); } catch (ex) {} }
       var vp = document.querySelector('video-player');
@@ -1927,7 +1968,7 @@
       v.addEventListener('playing', function() {
         if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
       });
-      spReport('single player: taking over', { next: cidOfUrl(nextUrl) });
+      spReport('single player: taking over', { next: cidOfUrl(nextUrl), stoppedHls: found.hls, stoppedMux: found.mux });
       // A rest, so the box can free uScreen's player before this one starts.
       setTimeout(function() {
         if (_sp !== sp) return;
