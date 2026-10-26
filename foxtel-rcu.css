@@ -7,7 +7,7 @@
    stylesheet and the script are from different deploys. The two are separate
    <link> and <script> tags, so it is easy to update one and forget the other,
    and the result is a page that is half fixed with no obvious cause. */
-:root { --rcu-build: "2026-10-21-a"; }
+:root { --rcu-build: "2026-10-26-a"; }
 
 /* Focus ring on all interactive elements (SBB only) */
 .foxtel-sbb a:focus,
@@ -523,6 +523,18 @@ body.rcu-fullscreen-active .footer {
 }
 .rcu-menu-bottom {
     margin-top: auto;
+}
+/* The build number at the foot of the rail. Small and quiet: it is for a
+   tester's report, not for the viewer. */
+.rcu-menu-version {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: -6px;
+    font: 12px/1.3 sans-serif;
+    color: #6b6b6b;
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 .rcu-menu-active {
     background: rgba(245, 135, 31, 0.18);

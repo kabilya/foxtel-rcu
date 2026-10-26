@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-10-21-a';
+  var RCU_VERSION = '2026-10-26-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1265,6 +1265,13 @@
         nav.appendChild(a);
       });
 
+      // The build that runs, under Settings, so a tester can read it off the
+      // screen and quote it in a report. Text only, never a focus target.
+      var ver = document.createElement('div');
+      ver.className = 'rcu-menu-version';
+      ver.innerHTML = '<span>Version</span><span>' + RCU_VERSION + '</span>';
+      nav.appendChild(ver);
+
       // First child of body, so DOM order matches what the eye sees.
       document.body.insertBefore(nav, document.body.firstChild);
       document.body.classList.add('rcu-has-side-menu');
@@ -2094,6 +2101,9 @@
 
     function addTestTile() {
       if (!isSBB || !/^\/(catalog)?$/.test(window.location.pathname)) return;
+      // A Foxtel box only. isSBB is true for every viewer, so without this a
+      // website viewer saw the tile too (seen live on 26 Oct).
+      if (!/\(ADB;|ADBChromium|Foxtel_STB/.test(navigator.userAgent)) return;
       if (document.getElementById('rcu-test-tile')) return;
       var area = document.querySelector('.catalog-area');
       if (!area) return false;
