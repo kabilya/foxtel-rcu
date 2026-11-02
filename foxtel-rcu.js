@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-11-02-a';
+  var RCU_VERSION = '2026-11-02-b';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1872,7 +1872,7 @@
       }, NEXT_VIDEO_REST_MS);
     }
 
-    // --- One player for the rest of the playlist (FOX-3001) ---
+    // --- One player for the whole playlist (FOX-3001) ---
     //
     // What the box showed: one 48 minute concert played to the end, but a
     // playlist went black after 2 to 11 videos. The box loses memory each
@@ -1886,18 +1886,35 @@
     // player already plays through hls.js on the box, and so do most apps
     // on it (Foxtel, 19 Oct). The difference is that those apps keep their
     // player, where uScreen builds a new page, player and hls.js for each
-    // video. The first video still plays in uScreen's player. When it ends,
-    // uScreen's player is removed, so that it frees what it holds, and this
-    // one takes over. Any fault sends the viewer the old way, a full page
-    // load, and turns this off for the rest of the session.
+    // video.
+    //
+    // From 2 Nov our player starts with the FIRST video. Before, uScreen's
+    // player played the first video and ours took over when it ended. That
+    // hand-over failed 2 times out of 3 (hls.js: mediaSourceRequiresReset,
+    // 3 seconds in): the box plays one media stream at a time, and it did
+    // not always free the first in time for the second. The one time the
+    // hand-over worked, our player played every video it was given. So now
+    // uScreen's player is taken out as soon as it arrives, before it
+    // attaches any media, and ours starts in its place. The hand-over at
+    // the end of a video stays only for a page where no video id is found.
+    //
+    // A fault gets a second chance: a fresh <video> and a fresh hls.js for
+    // the same video, after a rest. A second fault sends the viewer the old
+    // way, a full page load, and turns this off for the rest of the session.
     //
     // Only the ADB boxes. The ARRIS box (WPE browser) played 50 videos in a
     // row the old way with no fault, so it stays on the old way.
     var SP_FAILED_KEY = 'rcu_single_player_failed';
     var SP_START_MS = 20000;
-    var SP_REST_MS = 3000;
+    var SP_REST_MS = 3000;       // after uScreen's player, before ours starts
+    var SP_RETRY_MS = 5000;      // after a fault, before the second chance
     // The same address as uScreen's player uses, so the box already has it.
     var SP_HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.7.0/+esm';
+    // The buffer limits uScreen's player runs with on the box, and the box
+    // copes with: 30 seconds ahead. hls.js alone keeps up to 60 MB ahead,
+    // which is 4 minutes of this stream, all of it in the box's memory.
+    // Behind, 30 seconds; hls.js alone keeps all of it (the leak Paul found).
+    var SP_HLS_CONFIG = { backBufferLength: 30, maxMaxBufferLength: 30, maxBufferSize: 20 * 1000 * 1000 };
     var _sp = null;
 
     function singlePlayerAllowed() {
@@ -1925,6 +1942,15 @@
 
     function cidOfUrl(url) { var m = /[?&]cid=(\d+)/.exec(url || ''); return m ? m[1] : ''; }
 
+    // The video of the page: in the address, or on the frame that brings
+    // uScreen's player (a collection opened with no video in the address).
+    function pageCid() {
+      var cid = cidOfUrl(window.location.search);
+      if (cid) return cid;
+      var frame = document.getElementById('program_show');
+      return frame ? cidOfUrl(frame.getAttribute('src') || '') : '';
+    }
+
     // uScreen loads the player for a video from this address. It holds the
     // HLS address with a fresh access token, and the id of the next video.
     function fetchVideoInfo(path, cid) {
@@ -1944,116 +1970,184 @@
         });
     }
 
-    function startSinglePlayer(nextUrl) {
+    // Start our player with the video of firstUrl. Any player of uScreen's
+    // on the page is freed first.
+    function startSinglePlayer(firstUrl) {
       var path = window.location.pathname;
-      var sp = { vid: null, hls: null, path: path, played: {}, count: 0, next: '', cid: '',
-                 startTimer: null, wantSound: false, recovered: false, fallbackUrl: nextUrl };
+      var sp = { vid: null, hls: null, Hls: null, path: path, played: {}, count: 0, next: '', cid: '',
+                 startTimer: null, wantSound: false, secondChance: false, fallbackUrl: firstUrl };
+      var first = cidOfUrl(firstUrl);
       var here = cidOfUrl(window.location.search);
-      if (here) sp.played[here] = true;
+      // Never play the video of the page again when it is not the first.
+      if (here && here !== first) sp.played[here] = true;
 
       // Free uScreen's player completely. Its element goes first, so that it
       // tears down its own hls.js while the <video> is still inside it.
       _userPaused = true;
       var found = cleanUpUscreenPlayer();
+      var handover = false;
       var vids = document.querySelectorAll('video');
-      for (var i = 0; i < vids.length; i++) { try { vids[i].pause(); } catch (ex) {} }
+      for (var i = 0; i < vids.length; i++) {
+        // uScreen's player played: that video counts, and the box needs a
+        // rest before the next player starts.
+        try { if (vids[i].ended || !vids[i].paused) handover = true; } catch (ex) {}
+        try { vids[i].pause(); } catch (ex) {}
+      }
       var vp = document.querySelector('video-player');
       if (vp && vp.parentNode) { try { vp.parentNode.removeChild(vp); } catch (ex) {} }
       for (var j = 0; j < vids.length; j++) {
         try { vids[j].removeAttribute('src'); vids[j].innerHTML = ''; vids[j].load(); } catch (ex) {}
         if (vids[j].parentNode) { try { vids[j].parentNode.removeChild(vids[j]); } catch (ex) {} }
       }
+      if (handover) sp.count = 1;
+      _sp = sp;
+      spBuild(sp);
+      spReport('single player: ' + (handover ? 'taking over' : 'from the first video'),
+               { first: first, stoppedHls: found.hls, stoppedMux: found.mux });
+      // A rest, so the box can free uScreen's player before this one starts.
+      // Nothing played and nothing stopped: no rest.
+      var rest = (handover || found.hls || found.mux) ? SP_REST_MS : 0;
+      setTimeout(function() {
+        if (_sp !== sp) return;
+        loadHls().then(function(Hls) {
+          if (_sp !== sp) return;
+          if (!Hls || !Hls.isSupported()) { spFail('hls.js is not supported'); return; }
+          sp.Hls = Hls;
+          spAttach(sp);
+          spPlay(first);
+        }).catch(function(err) {
+          if (_sp === sp) spFail('could not load hls.js: ' + String(err && err.message || err).slice(0, 60));
+        });
+      }, rest);
+    }
 
+    // A fresh <video> for the player.
+    function spBuild(sp) {
       var v = document.createElement('video');
       v.id = 'rcu-single-player';
       v.setAttribute('tabindex', '0');
       v.setAttribute('playsinline', '');
       document.body.appendChild(v);
       sp.vid = v;
-      _sp = sp;
-      v.addEventListener('ended', function() { if (_sp === sp) spPlay(sp.next); });
+      v.addEventListener('ended', function() { if (_sp === sp && sp.vid === v) spPlay(sp.next); });
       v.addEventListener('playing', function() {
         if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
       });
-      spReport('single player: taking over', { next: cidOfUrl(nextUrl), stoppedHls: found.hls, stoppedMux: found.mux });
-      // A rest, so the box can free uScreen's player before this one starts.
+    }
+
+    // A fresh hls.js on the player's <video>.
+    function spAttach(sp) {
+      var Hls = sp.Hls;
+      var hls = new Hls(SP_HLS_CONFIG);
+      sp.hls = hls;
+      hls.on(Hls.Events.ERROR, function(evt, data) {
+        if (_sp !== sp || sp.hls !== hls || !data || !data.fatal) return;
+        // hls.js has already made its own recovery before it says fatal.
+        spFault('hls.js ' + data.type + ' ' + data.details, data);
+      });
+      hls.attachMedia(sp.vid);
+    }
+
+    // What the player and the box say at a fault, for Sentry. The report of
+    // 2 Nov said "mediaSourceRequiresReset" and nothing of why.
+    function spDetail(sp, data) {
+      var v = sp.vid, d = { cid: sp.cid, played: sp.count };
+      try {
+        if (data && data.error) d.msg = String(data.error.message || data.error).slice(0, 160);
+        if (data && data.reason) d.reason = String(data.reason).slice(0, 80);
+        if (v) {
+          d.media = v.error ? v.error.code + ' ' + (v.error.message || '') : 'none';
+          d.ready = v.readyState;
+          d.net = v.networkState;
+          d.time = Math.round(v.currentTime * 10) / 10;
+          var b = v.buffered, parts = [];
+          for (var i = 0; i < b.length; i++) parts.push(Math.round(b.start(i)) + '-' + Math.round(b.end(i)));
+          d.buffered = parts.join(',') || 'none';
+        }
+      } catch (ex) {}
+      return d;
+    }
+
+    // A fault. Once for each video: a fresh player for the same video, after
+    // a rest. Twice: the old way.
+    function spFault(what, data) {
+      var sp = _sp;
+      if (!sp) return;
+      var d = spDetail(sp, data);
+      d.error = what;
+      if (sp.secondChance || !sp.cid) { spFail(what, d); return; }
+      sp.secondChance = true;
+      spReport('single player: second chance after ' + what, d);
+      if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
+      if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
+      var v = sp.vid;
+      sp.vid = null;
+      if (v) {
+        try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
+        if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
+      }
       setTimeout(function() {
         if (_sp !== sp) return;
-        loadHls().then(function(Hls) {
+        spBuild(sp);
+        spAttach(sp);
+        fetchVideoInfo(sp.path, sp.cid).then(function(info) {
           if (_sp !== sp) return;
-          if (!Hls || !Hls.isSupported()) { spFail('hls.js is not supported'); return; }
-          // hls.js keeps all the video it has played unless told otherwise.
-          // Nothing here seeks back far, so let it free what is behind.
-          var hls = new Hls({ backBufferLength: 30 });
-          sp.hls = hls;
-          hls.on(Hls.Events.ERROR, function(evt, data) {
-            if (_sp !== sp || !data || !data.fatal) return;
-            var what = data.type + ' ' + data.details;
-            // One second chance for each video, the way hls.js advises.
-            if (!sp.recovered && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              sp.recovered = true;
-              spReport('single player: recovering', { error: what });
-              hls.recoverMediaError();
-              return;
-            }
-            if (!sp.recovered && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              sp.recovered = true;
-              spReport('single player: loading again', { error: what });
-              hls.startLoad();
-              return;
-            }
-            spFail('hls.js ' + what);
-          });
-          hls.attachMedia(v);
-          spPlay(cidOfUrl(nextUrl));
+          sp.next = info.next;
+          spLoad(sp, info.src);
         }).catch(function(err) {
-          if (_sp === sp) spFail('could not load hls.js: ' + String(err && err.message || err).slice(0, 60));
+          if (_sp === sp) spFail('could not get the video: ' + String(err && err.message || err).slice(0, 60));
         });
-      }, SP_REST_MS);
+      }, SP_RETRY_MS);
     }
 
     function spPlay(cid) {
       var sp = _sp;
       if (!sp) return;
       if (!cid || sp.played[cid]) { spEnd('end of the collection'); return; }
-      // uScreen's player played the first video, so the test counts it.
-      if (_testLimit && sp.count + 1 >= _testLimit) { spEnd('test finished after ' + _testLimit + ' videos'); return; }
+      if (_testLimit && sp.count >= _testLimit) { spEnd('test finished after ' + _testLimit + ' videos'); return; }
       sp.played[cid] = true;
       sp.cid = cid;
       sp.fallbackUrl = sp.path + '?cid=' + cid;
       fetchVideoInfo(sp.path, cid).then(function(info) {
         if (_sp !== sp) return;
-        var v = sp.vid;
         sp.next = info.next;
         sp.count++;
-        sp.recovered = false;
+        sp.secondChance = false;
         // The address bar follows the video, so a reload, the recorder and
         // Sentry all see the right one. Turbo's own state is kept.
         try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {}
         spReport('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
-        _userPaused = false;
-        sp.hls.loadSource(info.src);
-        enterFullscreen(v);
-        try { v.focus(); } catch (ex) {}
-        if (sp.startTimer) clearTimeout(sp.startTimer);
-        sp.startTimer = setTimeout(function() {
-          sp.startTimer = null;
-          if (_sp === sp && v.readyState < 2 && v.currentTime === 0) spFail('did not start in ' + (SP_START_MS / 1000) + 's');
-        }, SP_START_MS);
-        var p = v.play();
-        if (p && p.catch) p.catch(function(err) {
-          if (_sp !== sp) return;
-          // The autoplay rule is about sound: start quiet, and put the sound
-          // back at the next key press. Any other refusal is the source
-          // changing under it; 'playing' or the timer decides.
-          if (err && err.name === 'NotAllowedError') {
-            v.muted = true;
-            sp.wantSound = true;
-            v.play().catch(function() {});
-          }
-        });
+        spLoad(sp, info.src);
       }).catch(function(err) {
         if (_sp === sp) spFail('could not get the video: ' + String(err && err.message || err).slice(0, 60));
+      });
+    }
+
+    // Give the player a stream, and make it play.
+    function spLoad(sp, src) {
+      var v = sp.vid;
+      _userPaused = false;
+      sp.hls.loadSource(src);
+      enterFullscreen(v);
+      try { v.focus(); } catch (ex) {}
+      if (sp.startTimer) clearTimeout(sp.startTimer);
+      sp.startTimer = setTimeout(function() {
+        sp.startTimer = null;
+        if (_sp === sp && sp.vid === v && v.readyState < 2 && v.currentTime === 0) {
+          spFault('did not start in ' + (SP_START_MS / 1000) + 's');
+        }
+      }, SP_START_MS);
+      var p = v.play();
+      if (p && p.catch) p.catch(function(err) {
+        if (_sp !== sp || sp.vid !== v) return;
+        // The autoplay rule is about sound: start quiet, and put the sound
+        // back at the next key press. Any other refusal is the source
+        // changing under it; 'playing' or the timer decides.
+        if (err && err.name === 'NotAllowedError') {
+          v.muted = true;
+          sp.wantSound = true;
+          v.play().catch(function() {});
+        }
       });
     }
 
@@ -2065,8 +2159,10 @@
       exitFullscreen();
       if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
       var v = sp.vid;
-      try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
-      if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
+      if (v) {
+        try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
+        if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
+      }
     }
 
     // The playlist is over, or the viewer left it: back to the collection page.
@@ -2078,23 +2174,58 @@
       window.location.replace(sp.path);
     }
 
-    // Something went wrong: the old way for this video, and no more single
-    // player in this session. The viewer still gets the video.
-    function spFail(reason) {
+    // Something went wrong twice: the old way for this video, and no more
+    // single player in this session. The viewer still gets the video.
+    function spFail(reason, detail) {
       var sp = _sp;
       if (!sp) return;
-      spReport('single player failed: ' + reason + ', loading the page', { cid: sp.cid, played: sp.count });
+      spReport('single player failed: ' + reason + ', loading the page', detail || { cid: sp.cid, played: sp.count });
       try { sessionStorage.setItem(SP_FAILED_KEY, reason); } catch (ex) {}
       stopSinglePlayer();
       window.location.replace(sp.fallbackUrl);
     }
 
+    // Our player from the first video: as soon as uScreen's player arrives,
+    // and before it attaches any media. The player comes with the page's
+    // frame, some time after the page, so watch for it. The watch costs
+    // little: it looks only at what is added, and it stops once ours runs.
+    var _spWatch = null;
+    function takeOverEarly() {
+      if (_sp || !singlePlayerAllowed() || !isPlayablePage()) return false;
+      if (!document.querySelector('video-player')) return false;
+      var cid = pageCid();
+      if (!cid) { note('single player: no video id on the page'); return false; }
+      startSinglePlayer(window.location.pathname + '?cid=' + cid);
+      return true;
+    }
+    function watchForUscreenPlayer() {
+      if (_spWatch) { _spWatch.disconnect(); _spWatch = null; }
+      if (takeOverEarly() || !singlePlayerAllowed() || !isPlayablePage() || !window.MutationObserver) return;
+      _spWatch = new MutationObserver(function(records) {
+        for (var i = 0; i < records.length; i++) {
+          var added = records[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var n = added[j];
+            if (n.nodeType !== 1) continue;
+            if (n.tagName === 'VIDEO-PLAYER' || (n.firstElementChild && n.querySelector('video-player'))) {
+              if (takeOverEarly() && _spWatch) { _spWatch.disconnect(); _spWatch = null; }
+              return;
+            }
+          }
+        }
+      });
+      _spWatch.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    setTimeout(watchForUscreenPlayer, 0);
+    document.addEventListener('turbo:load', watchForUscreenPlayer);
+
     // --- TEMPORARY: a test tile for Foxtel (FOX-3001). Remove after the test. ---
     //
     // The first thing on the Home screen of the box, with the focus, so a
-    // tester presses OK and the Elvis Playlist starts at video 1. With
-    // rcu_test=4 in the address, the single player stops after 4 videos.
-    var TEST_TILE_HREF = '/programs/collection-uwpry9p1l_s?cid=4774688&rcu_test=4';
+    // tester presses OK and the Elvis Playlist starts at video 1 and plays to
+    // the end. (rcu_test=N in the address stops the player after N videos.
+    // The first test had 4, and that hid how far the player would go.)
+    var TEST_TILE_HREF = '/programs/collection-uwpry9p1l_s?cid=4774688';
     var _testLimit = parseInt((/[?&]rcu_test=(\d+)/.exec(window.location.search) || [])[1] || '0', 10);
     var _keySeen = false;
     document.addEventListener('keydown', function() { _keySeen = true; }, true);
@@ -2110,7 +2241,7 @@
       var a = document.createElement('a');
       a.id = 'rcu-test-tile';
       a.href = TEST_TILE_HREF;
-      a.textContent = 'Foxtel test: play 4 videos of the Elvis Playlist';
+      a.textContent = 'Foxtel test: play the Elvis Playlist';
       area.insertBefore(a, area.firstChild);
       // Take the focus only if the viewer has not moved yet.
       if (!_keySeen && !_kbdOpen) { try { a.focus(); } catch (ex) {} }
@@ -2238,6 +2369,8 @@
       if (!isPlayablePage()) { note('skipped: not a playable page'); return; }
       var here = window.location.href;
       if (_autoPlayedFor === here) { note('skipped: already auto played this URL'); return; }
+      // Our player runs the page: it plays, goes full screen and moves on by itself.
+      if (_sp) { note('skipped: our player is on'); _autoPlayedFor = here; return; }
 
       var vp = document.querySelector('video-player');
       var vid = vp && vp.querySelector('video');
