@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-11-02-b';
+  var RCU_VERSION = '2026-11-03-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1908,6 +1908,8 @@
     var SP_START_MS = 20000;
     var SP_REST_MS = 3000;       // after uScreen's player, before ours starts
     var SP_RETRY_MS = 5000;      // after a fault, before the second chance
+    var SP_CHANGE_MS = 1000;     // between videos: the box frees the old pair first
+    var SP_STALL_MS = 20000;     // a clock that stands still this long is a fault
     // The same address as uScreen's player uses, so the box already has it.
     var SP_HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1.7.0/+esm';
     // The buffer limits uScreen's player runs with on the box, and the box
@@ -2031,9 +2033,67 @@
       sp.vid = v;
       v.addEventListener('ended', function() { if (_sp === sp && sp.vid === v) spPlay(sp.next); });
       v.addEventListener('playing', function() {
+        if (_sp !== sp || sp.vid !== v) return;
         if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
+        // Once for each video: the box did start it, and how long it took.
+        if (!sp.playingSeen) {
+          sp.playingSeen = true;
+          spReport('single player: video ' + sp.count + ' is playing',
+                   { cid: sp.cid, after: Math.round((Date.now() - sp.loadedAt) / 100) / 10 });
+        }
+        spWatch(sp);
       });
     }
+
+    // The clock of the video must move. On 3 Nov 2026 two boxes went black
+    // at video 4, said nothing, and never reached the end of it. A clock
+    // that stands still for 20 s is a fault, and gets the second chance.
+    function spWatch(sp) {
+      if (sp.watch) return;
+      var v = sp.vid, last = -1, since = Date.now();
+      sp.watch = setInterval(function() {
+        if (_sp !== sp || sp.vid !== v) { clearInterval(sp.watch); sp.watch = null; return; }
+        var now = Date.now();
+        if (v.paused || v.ended || v.currentTime !== last) { last = v.currentTime; since = now; return; }
+        if (now - since >= SP_STALL_MS) {
+          clearInterval(sp.watch); sp.watch = null;
+          spFault('the clock stood still for ' + Math.round((now - since) / 1000) + 's');
+        }
+      }, 1000);
+    }
+
+    // Take the player down: hls.js first, then the <video>.
+    function spTeardown(sp) {
+      if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
+      if (sp.watch) { clearInterval(sp.watch); sp.watch = null; }
+      if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
+      var v = sp.vid;
+      sp.vid = null;
+      if (v) {
+        try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
+        if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
+      }
+    }
+
+    // A fresh <video> and a fresh hls.js for the stream (a promise of its
+    // address), after a rest. hls.js puts a new MediaSource on the same
+    // <video> for each stream, and on 3 Nov 2026 two ADB boxes went black
+    // at the fourth one. A fresh pair for each video leaves the box nothing
+    // to keep. The rest and the fetch of the address run at the same time.
+    function spFresh(sp, rest, src) {
+      spTeardown(sp);
+      var rested = new Promise(function(done) { setTimeout(done, rest); });
+      Promise.all([src, rested]).then(function(both) {
+        if (_sp !== sp || !both[0]) return;
+        spBuild(sp);
+        spAttach(sp);
+        spLoad(sp, both[0]);
+      }).catch(function(err) {
+        if (_sp === sp) spFail('could not get the video: ' + errText(err));
+      });
+    }
+
+    function errText(err) { return String(err && err.message || err).slice(0, 60); }
 
     // A fresh hls.js on the player's <video>.
     function spAttach(sp) {
@@ -2078,26 +2138,10 @@
       if (sp.secondChance || !sp.cid) { spFail(what, d); return; }
       sp.secondChance = true;
       spReport('single player: second chance after ' + what, d);
-      if (sp.startTimer) { clearTimeout(sp.startTimer); sp.startTimer = null; }
-      if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
-      var v = sp.vid;
-      sp.vid = null;
-      if (v) {
-        try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
-        if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
-      }
-      setTimeout(function() {
-        if (_sp !== sp) return;
-        spBuild(sp);
-        spAttach(sp);
-        fetchVideoInfo(sp.path, sp.cid).then(function(info) {
-          if (_sp !== sp) return;
-          sp.next = info.next;
-          spLoad(sp, info.src);
-        }).catch(function(err) {
-          if (_sp === sp) spFail('could not get the video: ' + String(err && err.message || err).slice(0, 60));
-        });
-      }, SP_RETRY_MS);
+      spFresh(sp, SP_RETRY_MS, fetchVideoInfo(sp.path, sp.cid).then(function(info) {
+        sp.next = info.next;
+        return info.src;
+      }));
     }
 
     function spPlay(cid) {
@@ -2108,8 +2152,8 @@
       sp.played[cid] = true;
       sp.cid = cid;
       sp.fallbackUrl = sp.path + '?cid=' + cid;
-      fetchVideoInfo(sp.path, cid).then(function(info) {
-        if (_sp !== sp) return;
+      var src = fetchVideoInfo(sp.path, cid).then(function(info) {
+        if (_sp !== sp) return '';
         sp.next = info.next;
         sp.count++;
         sp.secondChance = false;
@@ -2117,9 +2161,15 @@
         // Sentry all see the right one. Turbo's own state is kept.
         try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {}
         spReport('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
-        spLoad(sp, info.src);
+        return info.src;
+      });
+      // The first video goes to the pair that waits for it. Each video after
+      // it gets a fresh pair.
+      if (sp.loaded) { spFresh(sp, SP_CHANGE_MS, src); return; }
+      src.then(function(s) {
+        if (_sp === sp && s) spLoad(sp, s);
       }).catch(function(err) {
-        if (_sp === sp) spFail('could not get the video: ' + String(err && err.message || err).slice(0, 60));
+        if (_sp === sp) spFail('could not get the video: ' + errText(err));
       });
     }
 
@@ -2127,6 +2177,9 @@
     function spLoad(sp, src) {
       var v = sp.vid;
       _userPaused = false;
+      sp.loaded = true;
+      sp.loadedAt = Date.now();
+      sp.playingSeen = false;
       sp.hls.loadSource(src);
       enterFullscreen(v);
       try { v.focus(); } catch (ex) {}
@@ -2155,14 +2208,8 @@
       var sp = _sp;
       if (!sp) return;
       _sp = null;
-      if (sp.startTimer) clearTimeout(sp.startTimer);
       exitFullscreen();
-      if (sp.hls) { try { sp.hls.destroy(); } catch (ex) {} sp.hls = null; }
-      var v = sp.vid;
-      if (v) {
-        try { v.pause(); v.removeAttribute('src'); v.load(); } catch (ex) {}
-        if (v.parentNode) { try { v.parentNode.removeChild(v); } catch (ex) {} }
-      }
+      spTeardown(sp);
     }
 
     // The playlist is over, or the viewer left it: back to the collection page.
