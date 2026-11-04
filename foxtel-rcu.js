@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-11-04-a';
+  var RCU_VERSION = '2026-11-04-b';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -2478,7 +2478,16 @@
     // can stop a video was never going to hold: Stop did not set the flag, so
     // the watcher started the video again and the viewer had to press Stop
     // three times.
-    document.addEventListener('keydown', function() { _lastKeyAt = Date.now(); }, true);
+    // The name of each named key goes in the report. (Paul, 4 Nov: volume
+    // down paused his video. On the owner's box no volume key reaches the
+    // page at all, so only his box can tell us what it sends.)
+    document.addEventListener('keydown', function(e) {
+      _lastKeyAt = Date.now();
+      try {
+        var k = e && e.key;
+        if (k && k.length > 1 && k.indexOf('Arrow') !== 0) note('key ' + k + '/' + e.keyCode);
+      } catch (ex) {}
+    }, true);
 
     function watchForViewerPause(vid) {
       if (vid.__rcuPauseWatch) return;
@@ -2487,6 +2496,8 @@
         if (Date.now() - _lastKeyAt < 1000) {
           _userPaused = true;
           note('the viewer stopped it');
+        } else if (vid.isConnected && !vid.ended) {
+          note('paused with no key', { sinceKey: Math.round((Date.now() - _lastKeyAt) / 1000) + 's' });
         }
       });
       // uScreen reloads the element while it starts. A reload pauses the
@@ -2720,6 +2731,32 @@
       var v = document.querySelector('video-player video');
       if (v && v.muted && !v.paused) { v.muted = false; v.volume = 1; _unmutedAt = Date.now(); }
     }, true);
+
+    // A pause with no key. The box can send the browser a media command
+    // (Media Session) with no key event to the page. Paul, 4 Nov: volume
+    // down paused his video, and on the owner's box no volume key reaches
+    // the page at all. A pause command that no key came with is not the
+    // viewer's: log it and leave the video alone. A handler replaces the
+    // browser's own action, so each one must do what the browser did.
+    function mediaVideo() {
+      return document.querySelector('video-player video') || document.querySelector('video');
+    }
+    try {
+      var ms = navigator.mediaSession;
+      if (ms && ms.setActionHandler) {
+        ms.setActionHandler('pause', function() {
+          var v = mediaVideo();
+          var withKey = Date.now() - _lastKeyAt < 1000;
+          note(withKey ? 'media session pause' : 'media session pause with no key, ignored');
+          if (v && withKey && !v.paused) { _userPaused = true; v.pause(); }
+        });
+        ms.setActionHandler('play', function() {
+          var v = mediaVideo();
+          note('media session play');
+          if (v && v.paused) { _userPaused = false; v.play().catch(function() {}); }
+        });
+      }
+    } catch (ex) {}
 
     // Is there anything to play just past where we are sitting? Without this,
     // a video that is simply buffering would look exactly like a frozen one.
