@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-11-03-a';
+  var RCU_VERSION = '2026-11-04-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1950,7 +1950,24 @@
       var cid = cidOfUrl(window.location.search);
       if (cid) return cid;
       var frame = document.getElementById('program_show');
-      return frame ? cidOfUrl(frame.getAttribute('src') || '') : '';
+      cid = frame ? cidOfUrl(frame.getAttribute('src') || '') : '';
+      if (cid) return cid;
+      // A single video (not a collection) has no video id in any address.
+      // uScreen's player carries the id itself. (Paul, 4 Nov: every page
+      // his boxes opened after the playlist was a single video, and one
+      // of them died in uScreen's player.)
+      var vp = singleVideoPlayer();
+      if (!vp) return '';
+      var m = /"content_id":\s*"?(\d+)/.exec(vp.getAttribute('data-program-video-stats-value') || '');
+      if (m) return m[1];
+      var id = vp.getAttribute('data-id') || '';
+      return /^\d+$/.test(id) ? id : '';
+    }
+
+    // uScreen's player on a single video page, or null on a collection.
+    function singleVideoPlayer() {
+      var vp = document.querySelector('video-player');
+      return vp && vp.getAttribute('data-program-video-content-type-value') === 'video' ? vp : null;
     }
 
     // uScreen loads the player for a video from this address. It holds the
@@ -1965,9 +1982,10 @@
         .then(function(h) {
           var src = (/<source[^>]*\ssrc="([^"]+)"/.exec(h) || [])[1] || '';
           if (src.indexOf('.m3u8') === -1) throw new Error('no stream address');
+          // A single video names "0" as its next video: there is none.
           return {
             src: src.replace(/&amp;/g, '&'),
-            next: (/data-program-video-next-video-id-value="(\d*)"/.exec(h) || [])[1] || ''
+            next: (/data-program-video-next-video-id-value="([1-9]\d*)"/.exec(h) || [])[1] || ''
           };
         });
     }
@@ -1977,7 +1995,11 @@
     function startSinglePlayer(firstUrl) {
       var path = window.location.pathname;
       var sp = { vid: null, hls: null, Hls: null, path: path, played: {}, count: 0, next: '', cid: '',
-                 startTimer: null, wantSound: false, secondChance: false, fallbackUrl: firstUrl };
+                 startTimer: null, wantSound: false, secondChance: false, fallbackUrl: firstUrl,
+                 single: !!singleVideoPlayer() };
+      // A single video page: the address stays as it is, and the old way is
+      // the page itself.
+      if (sp.single) sp.fallbackUrl = path;
       var first = cidOfUrl(firstUrl);
       var here = cidOfUrl(window.location.search);
       // Never play the video of the page again when it is not the first.
@@ -2147,11 +2169,11 @@
     function spPlay(cid) {
       var sp = _sp;
       if (!sp) return;
-      if (!cid || sp.played[cid]) { spEnd('end of the collection'); return; }
+      if (!cid || sp.played[cid]) { spEnd(sp.single ? 'end of the video' : 'end of the collection'); return; }
       if (_testLimit && sp.count >= _testLimit) { spEnd('test finished after ' + _testLimit + ' videos'); return; }
       sp.played[cid] = true;
       sp.cid = cid;
-      sp.fallbackUrl = sp.path + '?cid=' + cid;
+      if (!sp.single) sp.fallbackUrl = sp.path + '?cid=' + cid;
       var src = fetchVideoInfo(sp.path, cid).then(function(info) {
         if (_sp !== sp) return '';
         sp.next = info.next;
@@ -2159,7 +2181,7 @@
         sp.secondChance = false;
         // The address bar follows the video, so a reload, the recorder and
         // Sentry all see the right one. Turbo's own state is kept.
-        try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {}
+        if (!sp.single) { try { history.replaceState(history.state, '', sp.path + '?cid=' + cid); } catch (ex) {} }
         spReport('single player: video ' + sp.count, { cid: cid, next: info.next || 'none' });
         return info.src;
       });
@@ -2213,11 +2235,14 @@
     }
 
     // The playlist is over, or the viewer left it: back to the collection page.
+    // A single video is over, or the viewer left it: back to the page before
+    // it, the way Back goes. The video's own page would only play it again.
     function spEnd(reason) {
       var sp = _sp;
       if (!sp) return;
       spReport('single player: ' + reason, { played: sp.count });
       stopSinglePlayer();
+      if (sp.single) { goBackOnce(); return; }
       window.location.replace(sp.path);
     }
 
@@ -2226,7 +2251,9 @@
     function spFail(reason, detail) {
       var sp = _sp;
       if (!sp) return;
-      spReport('single player failed: ' + reason + ', loading the page', detail || { cid: sp.cid, played: sp.count });
+      detail = detail || { cid: sp.cid, played: sp.count };
+      detail.to = sp.fallbackUrl;
+      spReport('single player failed: ' + reason + ', loading the page', detail);
       try { sessionStorage.setItem(SP_FAILED_KEY, reason); } catch (ex) {}
       stopSinglePlayer();
       window.location.replace(sp.fallbackUrl);
@@ -2266,42 +2293,9 @@
     setTimeout(watchForUscreenPlayer, 0);
     document.addEventListener('turbo:load', watchForUscreenPlayer);
 
-    // --- TEMPORARY: a test tile for Foxtel (FOX-3001). Remove after the test. ---
-    //
-    // The first thing on the Home screen of the box, with the focus, so a
-    // tester presses OK and the Elvis Playlist starts at video 1 and plays to
-    // the end. (rcu_test=N in the address stops the player after N videos.
-    // The first test had 4, and that hid how far the player would go.)
-    var TEST_TILE_HREF = '/programs/collection-uwpry9p1l_s?cid=4774688';
+    // For a test: rcu_test=N in the address stops the player after N videos.
+    // (The Foxtel test tile on the Home screen went on 4 Nov, after the test.)
     var _testLimit = parseInt((/[?&]rcu_test=(\d+)/.exec(window.location.search) || [])[1] || '0', 10);
-    var _keySeen = false;
-    document.addEventListener('keydown', function() { _keySeen = true; }, true);
-
-    function addTestTile() {
-      if (!isSBB || !/^\/(catalog)?$/.test(window.location.pathname)) return;
-      // A Foxtel box only. isSBB is true for every viewer, so without this a
-      // website viewer saw the tile too (seen live on 26 Oct).
-      if (!/\(ADB;|ADBChromium|Foxtel_STB/.test(navigator.userAgent)) return;
-      if (document.getElementById('rcu-test-tile')) return;
-      var area = document.querySelector('.catalog-area');
-      if (!area) return false;
-      var a = document.createElement('a');
-      a.id = 'rcu-test-tile';
-      a.href = TEST_TILE_HREF;
-      a.textContent = 'Foxtel test: play the Elvis Playlist';
-      area.insertBefore(a, area.firstChild);
-      // Take the focus only if the viewer has not moved yet.
-      if (!_keySeen && !_kbdOpen) { try { a.focus(); } catch (ex) {} }
-      return true;
-    }
-    function scheduleTestTile() {
-      var tries = 0;
-      (function attempt() {
-        if (addTestTile() === false && ++tries <= 20) setTimeout(attempt, 500);
-      })();
-    }
-    document.addEventListener('turbo:load', scheduleTestTile);
-    setTimeout(scheduleTestTile, 300);
 
     document.addEventListener('turbo:before-visit', stopSinglePlayer);
     window.addEventListener('pagehide', stopSinglePlayer);
