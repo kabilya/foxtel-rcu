@@ -20,7 +20,7 @@
 
   // Bump on every deploy. The temporary diagnostic reports this, so we can
   // tell whether a box is actually running the build we think it is.
-  var RCU_VERSION = '2026-11-04-b';
+  var RCU_VERSION = '2026-11-05-a';
   try { window.__RCU_VERSION = RCU_VERSION; } catch (ex) {}
 
   // Only fully activate on SBB, but focus-visible styles help desktop testing too
@@ -1224,7 +1224,10 @@
       { id: 'favorites', href: '/favorites', label: 'Favourites',
         path: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z' },
       // Settings sits at the foot of the rail, as it does on the Fire TV app.
-      { id: 'account',   href: '/account',   label: 'Settings', bottom: true,
+      // Hidden since 5 Nov 2026 (Paul, Foxtel): uScreen's account page is a
+      // web form with nothing a resident needs, and it does not suit a
+      // remote. Drop `hidden` to show it again.
+      { id: 'account',   href: '/account',   label: 'Settings', bottom: true, hidden: true,
         path: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z' }
     ];
 
@@ -1255,7 +1258,10 @@
       brand.appendChild(mark);
       nav.appendChild(brand);
 
+      var bottomShown = false;
       MENU_ITEMS.forEach(function(item) {
+        if (item.hidden) return;
+        if (item.bottom) bottomShown = true;
         var a = document.createElement('a');
         a.className = 'rcu-menu-item' + (item.bottom ? ' rcu-menu-bottom' : '');
         a.href = item.href;
@@ -1268,7 +1274,8 @@
       // The build that runs, under Settings, so a tester can read it off the
       // screen and quote it in a report. Text only, never a focus target.
       var ver = document.createElement('div');
-      ver.className = 'rcu-menu-version';
+      // With no item at the foot of the rail, the version takes that place.
+      ver.className = 'rcu-menu-version' + (bottomShown ? '' : ' rcu-menu-bottom');
       ver.innerHTML = '<span>Version</span><span>' + RCU_VERSION + '</span>';
       nav.appendChild(ver);
 
